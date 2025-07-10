@@ -129,7 +129,10 @@ class AnimationMetadata:
             total_bones_animated=blender_data['total_bones_animated'],
             total_keyframes=blender_data['total_keyframes'],
             bone_data=bone_data,
-            rig_type="rigify" if "rigify" in blender_data['armature_name'].lower() else "unknown",
+            rig_type=RigTypeDetector.detect_rig_type(
+                blender_data['armature_name'], 
+                list(blender_data.get('bone_data', {}).keys())
+            ),
             tags=AnimationTagger.generate_tags(blender_data, bone_data),
             category="extracted"
         )
@@ -225,6 +228,72 @@ class AnimationMetadata:
             quality_rating=data.get('quality_rating', 0.0),
             usage_count=data.get('usage_count', 0)
         )
+
+
+class RigTypeDetector:
+    """Utility class for detecting rig types"""
+    
+    @classmethod
+    def detect_rig_type(cls, armature_name: str, bone_names: List[str]) -> str:
+        """Detect rig type from armature name and bone patterns"""
+        armature_lower = armature_name.lower()
+        bone_str = " ".join(bone_names).lower()
+        
+        # Check armature name first (most reliable)
+        if "rigify" in armature_lower:
+            return "Rigify"
+        elif "autorig" in armature_lower or "auto_rig" in armature_lower or "auto-rig" in armature_lower:
+            return "Auto-Rig Pro"
+        elif "mixamo" in armature_lower:
+            return "Mixamo"
+        
+        # Check bone patterns as backup
+        rigify_indicators = sum(1 for bone in bone_names 
+                               if any(pattern in bone.lower() for pattern in ["_fk.", "_ik.", "mch-", "def-", "org-"]))
+        
+        mixamo_indicators = sum(1 for bone in bone_names if "mixamorig:" in bone.lower())
+        
+        autorig_indicators = sum(1 for bone in bone_names 
+                                if any(pattern in bone.lower() for pattern in ["c_spine", "c_root", "_fk_", "_ik_"]))
+        
+        # Determine rig type based on indicators
+        if mixamo_indicators > 0:
+            return "Mixamo"
+        elif rigify_indicators >= 3:  # Need several Rigify bones to be confident
+            return "Rigify"
+        elif autorig_indicators >= 2:  # Need some Auto-Rig Pro patterns
+            return "Auto-Rig Pro"
+        
+        return "Unknown"
+    
+    @classmethod
+    def are_rigs_compatible(cls, rig_type1: str, rig_type2: str) -> bool:
+        """Check if two rig types are compatible"""
+        if rig_type1 == "Unknown" or rig_type2 == "Unknown":
+            return True  # Allow unknown rigs to be applied (user decides)
+        return rig_type1 == rig_type2
+    
+    @classmethod
+    def get_rig_color(cls, rig_type: str) -> str:
+        """Get color indicator for rig type"""
+        colors = {
+            "Rigify": "#51cf66",      # Green
+            "Auto-Rig Pro": "#339af0", # Blue
+            "Mixamo": "#ffd43b",      # Yellow
+            "Unknown": "#868e96"      # Gray
+        }
+        return colors.get(rig_type, "#868e96")
+    
+    @classmethod
+    def get_rig_emoji(cls, rig_type: str) -> str:
+        """Get emoji indicator for rig type"""
+        emojis = {
+            "Rigify": "🟢",
+            "Auto-Rig Pro": "🔵", 
+            "Mixamo": "🟡",
+            "Unknown": "⚪"
+        }
+        return emojis.get(rig_type, "⚪")
 
 
 class AnimationTagger:

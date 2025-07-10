@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Animation Library Qt GUI - Main Application
-Refactored professional interface with clean architecture
+Refactored professional interface with rig compatibility system
 """
 
 import sys
@@ -16,14 +16,13 @@ if str(gui_dir) not in sys.path:
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QSplitter, QGroupBox, QLabel, QPushButton, QLineEdit, QComboBox,
-    QScrollArea, QStatusBar, QMessageBox, QProgressBar, QFrame
+    QScrollArea, QStatusBar, QMessageBox, QProgressBar, QFrame, QSpinBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
 
 from gui.utils.blender_connection import BlenderConnectionHandler
 from gui.widgets.animation_card import AnimationCard, AnimationCardGrid
-from gui.widgets.bone_mapping import BoneMappingWidget
 from core.animation_data import AnimationMetadata, ApplyOptions
 from core.library_storage import AnimationLibraryManager
 import time
@@ -165,6 +164,8 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.rig_filter = QComboBox()
         self.rig_filter.addItem("All Rigs")
         self.rig_filter.addItem("Rigify")
+        self.rig_filter.addItem("Auto-Rig Pro")
+        self.rig_filter.addItem("Mixamo")
         self.rig_filter.addItem("Unknown")
         self.rig_filter.currentTextChanged.connect(self.filter_animations)
         search_row.addWidget(self.rig_filter)
@@ -198,7 +199,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         return section
     
     def create_controls_panel(self) -> QWidget:
-        """Create the controls and mapping panel"""
+        """Create the controls panel"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setSpacing(12)
@@ -207,9 +208,15 @@ class AnimationLibraryMainWindow(QMainWindow):
         selection_section = self.create_selection_section()
         layout.addWidget(selection_section)
         
-        # Bone mapping section
-        self.bone_mapping_widget = BoneMappingWidget()
-        layout.addWidget(self.bone_mapping_widget)
+        # Simple apply options section
+        apply_section = self.create_apply_options_section()
+        layout.addWidget(apply_section)
+        
+        # Rig compatibility info section
+        compatibility_section = self.create_compatibility_section()
+        layout.addWidget(compatibility_section)
+        
+        layout.addStretch()
         
         return panel
     
@@ -232,6 +239,55 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.frame_label = QLabel("Frame: --")
         self.frame_label.setObjectName("infoLabel")
         layout.addWidget(self.frame_label)
+        
+        return section
+    
+    def create_apply_options_section(self) -> QWidget:
+        """Create simple apply options"""
+        section = QGroupBox("Apply Options")
+        layout = QVBoxLayout(section)
+        
+        # Info label
+        info_label = QLabel("Animations will be applied to compatible rigs automatically.")
+        info_label.setObjectName("infoLabel")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # Frame offset option
+        frame_layout = QHBoxLayout()
+        frame_layout.addWidget(QLabel("Start at frame:"))
+        
+        self.frame_offset_spin = QSpinBox()
+        self.frame_offset_spin.setRange(1, 9999)
+        self.frame_offset_spin.setValue(1)
+        frame_layout.addWidget(self.frame_offset_spin)
+        
+        frame_layout.addStretch()
+        layout.addLayout(frame_layout)
+        
+        return section
+    
+    def create_compatibility_section(self) -> QWidget:
+        """Create rig compatibility information section"""
+        section = QGroupBox("Rig Compatibility")
+        layout = QVBoxLayout(section)
+        
+        # Current rig type display
+        self.current_rig_label = QLabel("Current Rig: Not detected")
+        self.current_rig_label.setObjectName("infoLabel")
+        layout.addWidget(self.current_rig_label)
+        
+        # Compatibility guide
+        guide_text = (
+            "🟢 Rigify → Rigify rigs\n"
+            "🔵 Auto-Rig Pro → Auto-Rig Pro rigs\n"
+            "🟡 Mixamo → Mixamo rigs\n"
+            "⚪ Unknown rigs (user discretion)"
+        )
+        guide_label = QLabel(guide_text)
+        guide_label.setObjectName("infoLabel")
+        guide_label.setStyleSheet("font-size: 9px; color: #aaa; padding: 4px;")
+        layout.addWidget(guide_label)
         
         return section
     
@@ -267,9 +323,6 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.blender_connection.animation_extracted.connect(self.on_animation_extracted)
         self.blender_connection.animation_applied.connect(self.on_animation_applied)
         self.blender_connection.error_received.connect(self.on_blender_error)
-        
-        # Bone mapping signals
-        self.bone_mapping_widget.mapping_changed.connect(self.on_bone_mapping_changed)
     
     def get_application_style(self) -> str:
         """Get the application stylesheet"""
@@ -350,6 +403,14 @@ class AnimationLibraryMainWindow(QMainWindow):
                 border-color: #0078d4;
             }
             
+            QSpinBox {
+                background-color: #404040;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px;
+                color: #ffffff;
+            }
+            
             #infoLabel {
                 color: #cccccc;
                 font-size: 11px;
@@ -416,18 +477,14 @@ class AnimationLibraryMainWindow(QMainWindow):
         """Handle scene information from Blender"""
         self.available_armatures = scene_data.get('armatures', [])
         
-        # Update bone mapping with available bones
+        # Update current rig type display if we have an armature selected
         if self.current_armature:
-            for armature_data in self.available_armatures:
-                if armature_data['name'] == self.current_armature:
-                    target_bones = armature_data['bones']
-                    # Update bone mapping with current animation's bones if available
-                    source_bones = []
-                    if hasattr(self, 'current_animation_data'):
-                        source_bones = list(self.current_animation_data.get('bone_data', {}).keys())
-                    
-                    self.bone_mapping_widget.update_bones(source_bones, target_bones)
-                    break
+            current_rig_type = self.detect_current_rig_type()
+            from core.animation_data import RigTypeDetector
+            rig_emoji = RigTypeDetector.get_rig_emoji(current_rig_type)
+            rig_color = RigTypeDetector.get_rig_color(current_rig_type)
+            self.current_rig_label.setText(f"Current Rig: {rig_emoji} {current_rig_type}")
+            self.current_rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold;")
     
     def on_selection_updated(self, selection_data: dict):
         """Handle selection update from Blender"""
@@ -441,8 +498,18 @@ class AnimationLibraryMainWindow(QMainWindow):
         # Update UI
         if armature:
             self.armature_label.setText(f"Armature: {armature}")
+            
+            # Update current rig type display
+            current_rig_type = self.detect_current_rig_type()
+            from core.animation_data import RigTypeDetector
+            rig_emoji = RigTypeDetector.get_rig_emoji(current_rig_type)
+            rig_color = RigTypeDetector.get_rig_color(current_rig_type)
+            self.current_rig_label.setText(f"Current Rig: {rig_emoji} {current_rig_type}")
+            self.current_rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold;")
         else:
             self.armature_label.setText("No armature selected")
+            self.current_rig_label.setText("Current Rig: Not detected")
+            self.current_rig_label.setStyleSheet("color: #888;")
         
         if bones:
             if len(bones) <= 5:
@@ -458,7 +525,7 @@ class AnimationLibraryMainWindow(QMainWindow):
     def on_animation_extracted(self, animation_data: dict):
         """Handle animation extraction from Blender"""
         try:
-            # Store current animation data for bone mapping
+            # Store current animation data for reference
             self.current_animation_data = animation_data
             
             # Create animation metadata
@@ -470,17 +537,6 @@ class AnimationLibraryMainWindow(QMainWindow):
             # Refresh display
             self.refresh_library_display()
             self.update_tag_filter()
-            
-            # Update bone mapping with extracted bones
-            source_bones = list(animation_data.get('bone_data', {}).keys())
-            target_bones = []
-            if self.current_armature:
-                for armature_data in self.available_armatures:
-                    if armature_data['name'] == self.current_armature:
-                        target_bones = armature_data['bones']
-                        break
-            
-            self.bone_mapping_widget.update_bones(source_bones, target_bones)
             
             self.status_bar.showMessage(f"Animation '{animation_data['action_name']}' extracted successfully", 3000)
             
@@ -529,7 +585,7 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "Extraction Failed", "Failed to send extraction request to Blender")
     
     def apply_animation(self, animation_data: dict):
-        """Apply animation to current armature"""
+        """Apply animation to current armature with rig compatibility check"""
         if not self.blender_connection.is_connected():
             QMessageBox.warning(self, "Not Connected", "Please connect to Blender first")
             return
@@ -538,8 +594,39 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "No Armature", "Please select an armature in Blender")
             return
         
-        # Get apply options from bone mapping widget
-        apply_options = self.bone_mapping_widget.get_apply_options()
+        # Check rig compatibility
+        animation_rig_type = animation_data.get('rig_type', 'Unknown')
+        current_rig_type = self.detect_current_rig_type()
+        
+        # Import RigTypeDetector
+        from core.animation_data import RigTypeDetector
+        
+        if not RigTypeDetector.are_rigs_compatible(animation_rig_type, current_rig_type):
+            rig_emoji_anim = RigTypeDetector.get_rig_emoji(animation_rig_type)
+            rig_emoji_current = RigTypeDetector.get_rig_emoji(current_rig_type)
+            
+            reply = QMessageBox.question(
+                self, "Rig Type Mismatch",
+                f"⚠️ Rig Compatibility Warning\n\n"
+                f"Animation Rig: {rig_emoji_anim} {animation_rig_type}\n"
+                f"Current Rig: {rig_emoji_current} {current_rig_type}\n\n"
+                f"This animation was created for a {animation_rig_type} rig, "
+                f"but your current rig appears to be {current_rig_type}.\n\n"
+                f"The animation may not apply correctly or may cause errors.\n"
+                f"Do you want to continue anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        # Get apply options (simplified - no complex mapping)
+        apply_options = ApplyOptions(
+            selected_bones_only=False,  # Apply to all bones for simplicity
+            frame_offset=self.frame_offset_spin.value(),
+            channels={'location': True, 'rotation': True, 'scale': True},
+            bone_mapping={}  # No bone mapping needed for same rig types
+        )
         
         # Show progress
         self.progress_bar.setVisible(True)
@@ -552,6 +639,23 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "Apply Failed", "Failed to send apply request to Blender")
         else:
             self.status_bar.showMessage(f"Applying animation '{animation_data['name']}'...", 2000)
+    
+    def detect_current_rig_type(self) -> str:
+        """Detect the rig type of the currently selected armature"""
+        if not self.current_armature:
+            return "Unknown"
+        
+        # Get bone names from available armatures info
+        current_bones = []
+        for armature_data in self.available_armatures:
+            if armature_data['name'] == self.current_armature:
+                current_bones = armature_data['bones']
+                break
+        
+        # Import RigTypeDetector
+        from core.animation_data import RigTypeDetector
+        
+        return RigTypeDetector.detect_rig_type(self.current_armature, current_bones)
     
     def preview_animation(self, animation_data: dict):
         """Preview animation (placeholder for future implementation)"""
@@ -685,12 +789,6 @@ class AnimationLibraryMainWindow(QMainWindow):
             self.stats_label.setText(f"{total_count} animations")
         else:
             self.stats_label.setText(f"{filtered_count} of {total_count} animations")
-    
-    # Event handlers
-    def on_bone_mapping_changed(self, bone_mapping: dict):
-        """Handle bone mapping changes"""
-        # Could store or validate bone mapping here
-        pass
     
     def closeEvent(self, event):
         """Handle application close"""
