@@ -95,13 +95,28 @@ class AnimationMetadata:
             # Process channels
             for channel_str in bone_info.get('channels', []):
                 # Parse channel string like "location[0]" or "rotation_quaternion[1]"
+                # But be careful of bone names that might contain brackets
                 if '[' in channel_str and ']' in channel_str:
-                    channel_name = channel_str.split('[')[0]
-                    array_index = int(channel_str.split('[')[1].split(']')[0])
-                    keyframe_count = bone_info.get('keyframe_count', 0)
-                    frame_range = blender_data.get('frame_range', (1, 1))
-                    
-                    bone_anim.add_channel(channel_name, array_index, keyframe_count, frame_range)
+                    # Find the LAST occurrence of '[' to get the array index
+                    last_bracket = channel_str.rfind('[')
+                    if last_bracket != -1:
+                        channel_name = channel_str[:last_bracket]
+                        array_index_str = channel_str[last_bracket+1:].rstrip(']')
+                        
+                        # Verify the array index is actually numeric
+                        try:
+                            array_index = int(array_index_str)
+                            keyframe_count = bone_info.get('keyframe_count', 0)
+                            frame_range = blender_data.get('frame_range', (1, 1))
+                            
+                            bone_anim.add_channel(channel_name, array_index, keyframe_count, frame_range)
+                        except ValueError:
+                            # If it's not numeric, treat the whole thing as the channel name
+                            print(f"Warning: Non-numeric array index in channel '{channel_str}', treating as channel name")
+                            bone_anim.add_channel(channel_str, 0, bone_info.get('keyframe_count', 0), blender_data.get('frame_range', (1, 1)))
+                else:
+                    # No brackets, treat as simple channel name
+                    bone_anim.add_channel(channel_str, 0, bone_info.get('keyframe_count', 0), blender_data.get('frame_range', (1, 1)))
             
             bone_data[bone_name] = bone_anim
         
@@ -158,11 +173,34 @@ class AnimationMetadata:
             # Reconstruct channels
             for channel_str in bone_info.get('channels', []):
                 if '[' in channel_str and ']' in channel_str:
-                    channel_name = channel_str.split('[')[0]
-                    array_index = int(channel_str.split('[')[1].split(']')[0])
+                    # Find the LAST occurrence of '[' to get the array index
+                    last_bracket = channel_str.rfind('[')
+                    if last_bracket != -1:
+                        channel_name = channel_str[:last_bracket]
+                        array_index_str = channel_str[last_bracket+1:].rstrip(']')
+                        
+                        # Verify the array index is actually numeric
+                        try:
+                            array_index = int(array_index_str)
+                            bone_anim.channels[channel_str] = ChannelData(
+                                channel_name=channel_name,
+                                array_index=array_index,
+                                keyframe_count=bone_info.get('keyframe_count', 0),
+                                frame_range=tuple(data['frame_range'])
+                            )
+                        except ValueError:
+                            # If it's not numeric, treat the whole thing as the channel name
+                            bone_anim.channels[channel_str] = ChannelData(
+                                channel_name=channel_str,
+                                array_index=0,
+                                keyframe_count=bone_info.get('keyframe_count', 0),
+                                frame_range=tuple(data['frame_range'])
+                            )
+                else:
+                    # No brackets, treat as simple channel name
                     bone_anim.channels[channel_str] = ChannelData(
-                        channel_name=channel_name,
-                        array_index=array_index,
+                        channel_name=channel_str,
+                        array_index=0,
                         keyframe_count=bone_info.get('keyframe_count', 0),
                         frame_range=tuple(data['frame_range'])
                     )
