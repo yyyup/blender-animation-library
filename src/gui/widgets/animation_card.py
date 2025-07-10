@@ -42,7 +42,7 @@ class AnimationCard(QFrame):
     
     def setup_ui(self):
         """Setup the card UI layout"""
-        self.setFixedSize(220, 300)
+        self.setFixedSize(220, 320)  # Increased height for rig type
         self.setFrameStyle(QFrame.NoFrame)
         
         # Main layout
@@ -133,6 +133,24 @@ class AnimationCard(QFrame):
         keyframe_label.setObjectName("keyframeLabel")
         layout.addWidget(keyframe_label)
         
+        # Rig type info with emoji and color
+        rig_type = self.animation_metadata.rig_type
+        # Import here to avoid circular imports
+        import sys
+        from pathlib import Path
+        gui_dir = Path(__file__).parent.parent.parent
+        if str(gui_dir) not in sys.path:
+            sys.path.insert(0, str(gui_dir))
+        from core.animation_data import RigTypeDetector
+        
+        rig_emoji = RigTypeDetector.get_rig_emoji(rig_type)
+        rig_color = RigTypeDetector.get_rig_color(rig_type)
+        
+        rig_label = QLabel(f"{rig_emoji} {rig_type} Rig")
+        rig_label.setObjectName("rigLabel")
+        rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold; font-size: 9px;")
+        layout.addWidget(rig_label)
+        
         # Creation date
         created_date = self.animation_metadata.created_date[:16].replace('T', ' ')
         date_label = QLabel(f"Created: {created_date}")
@@ -193,8 +211,6 @@ class AnimationCard(QFrame):
         edit_action = QAction("Edit Metadata", self)
         edit_action.triggered.connect(lambda: self.edit_requested.emit(self.animation_data))
         options_menu.addAction(edit_action)
-        
-        options_menu.addSeparator()
         
         delete_action = QAction("Delete", self)
         delete_action.triggered.connect(lambda: self.delete_requested.emit(self.animation_data))
@@ -262,6 +278,12 @@ class AnimationCard(QFrame):
             #keyframeLabel {
                 color: #aaaaaa;
                 font-size: 9px;
+            }
+            
+            #rigLabel {
+                font-size: 9px;
+                font-weight: bold;
+                padding: 1px 0px;
             }
             
             #dateLabel {
