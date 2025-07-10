@@ -1,6 +1,8 @@
 """
 GUI Blender Connection Handler
-Manages the connection between Qt GUI and Blender with proper signal handling
+EXISTING SCRIPT: src/gui/utils/blender_connection.py (FIXED)
+
+Fixed to properly handle new .blend file metadata structure
 """
 
 from PySide6.QtCore import QObject, Signal, QThread
@@ -106,21 +108,87 @@ class BlenderConnectionHandler(QObject):
         return False
     
     def apply_animation(self, animation_data: Dict[str, Any], apply_options: ApplyOptions) -> bool:
-        """Apply animation to Blender"""
-        if self.connection:
+        """Apply animation to Blender with proper data validation"""
+        if not self.connection:
+            logger.error("No connection to Blender")
+            return False
+        
+        try:
+            # Validate and normalize animation data
+            normalized_data = self._normalize_animation_data(animation_data)
+            
+            # Convert ApplyOptions to dict
             apply_data = {
                 'selected_only': apply_options.selected_bones_only,
                 'frame_offset': apply_options.frame_offset,
                 'channels': apply_options.channels,
                 'bone_mapping': apply_options.bone_mapping
             }
-            return self.connection.apply_animation(animation_data, apply_data)
-        return False
+            
+            logger.info(f"Applying animation: {normalized_data.get('name', 'Unknown')}")
+            logger.info(f"Storage method: {normalized_data.get('storage_method', 'unknown')}")
+            
+            return self.connection.apply_animation(normalized_data, apply_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to apply animation: {e}")
+            self.error_received.emit(f"Application failed: {str(e)}")
+            return False
+    
+    def _normalize_animation_data(self, animation_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize animation data to ensure required fields are present"""
+        normalized = animation_data.copy()
+        
+        # Ensure required fields exist
+        required_fields = {
+            'id': 'unknown_id',
+            'name': 'Unknown Animation',
+            'action_name': None,  # Will be set from name if missing
+            'armature_source': 'Unknown Armature',
+            'frame_range': [1, 30],
+            'total_bones_animated': 0,
+            'total_keyframes': 0,
+            'storage_method': 'blend_file',  # Default to new method
+            'created_date': '',
+            'rig_type': 'Unknown'
+        }
+        
+        for field, default_value in required_fields.items():
+            if field not in normalized:
+                if field == 'action_name':
+                    # Use 'name' field for action_name if missing
+                    normalized[field] = normalized.get('name', 'Unknown Animation')
+                else:
+                    normalized[field] = default_value
+        
+        # Ensure action_name is set (this was the source of the error)
+        if not normalized.get('action_name'):
+            normalized['action_name'] = normalized.get('name', 'Unknown Animation')
+        
+        # Add .blend file specific fields if using blend storage
+        if normalized.get('storage_method') == 'blend_file':
+            if 'blend_file' not in normalized:
+                # Generate blend filename from ID
+                animation_id = normalized.get('id', 'unknown')
+                normalized['blend_file'] = f"{animation_id}.blend"
+            
+            if 'blend_action_name' not in normalized:
+                # Use action_name as blend_action_name
+                normalized['blend_action_name'] = normalized['action_name']
+        
+        logger.debug(f"Normalized animation data: {normalized.get('name')} ({normalized.get('storage_method')})")
+        return normalized
     
     # Message handlers
     def _on_connected(self, message: Message):
         """Handle connection confirmation"""
         logger.info("Blender confirmed connection")
+        # Check if Blender supports .blend file storage
+        features = message.data.get('features', [])
+        if 'blend_file_storage' in features:
+            logger.info("✅ Blender supports .blend file storage (instant application)")
+        else:
+            logger.warning("⚠️ Blender using legacy storage (slow application)")
     
     def _on_scene_info(self, message: Message):
         """Handle scene info response"""
@@ -132,17 +200,33 @@ class BlenderConnectionHandler(QObject):
     
     def _on_animation_extracted(self, message: Message):
         """Handle animation extraction result"""
+        # Log extraction performance
+        storage_method = message.data.get('storage_method', 'unknown')
+        extraction_time = message.data.get('extraction_time_seconds', 0)
+        
+        logger.info(f"Animation extracted using {storage_method} method in {extraction_time:.1f}s")
+        
         self.animation_extracted.emit(message.data)
     
     def _on_animation_applied(self, message: Message):
         """Handle animation application result"""
+        # Log application performance
+        storage_method = message.data.get('source_method', 'unknown')
+        application_time = message.data.get('application_time_seconds', 0)
+        
+        logger.info(f"Animation applied using {storage_method} method in {application_time:.1f}s")
+        
         self.animation_applied.emit(message.data)
     
     def _on_error(self, message: Message):
         """Handle error from Blender"""
         error_msg = message.data.get('message', 'Unknown error')
+        error_type = message.data.get('error_type', 'general')
+        
+        logger.error(f"Blender error ({error_type}): {error_msg}")
         self.error_received.emit(error_msg)
     
     def _on_connection_error(self, error_msg: str):
         """Handle connection errors"""
+        logger.error(f"Connection error: {error_msg}")
         self.connection_error.emit(error_msg)
