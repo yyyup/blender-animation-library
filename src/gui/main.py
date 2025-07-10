@@ -16,7 +16,8 @@ if str(gui_dir) not in sys.path:
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QSplitter, QGroupBox, QLabel, QPushButton, QLineEdit, QComboBox,
-    QScrollArea, QStatusBar, QMessageBox, QProgressBar, QFrame, QSpinBox
+    QScrollArea, QStatusBar, QMessageBox, QProgressBar, QFrame, QSpinBox,
+    QCheckBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
@@ -253,6 +254,18 @@ class AnimationLibraryMainWindow(QMainWindow):
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
         
+        # Selected bones only option
+        self.selected_bones_only_cb = QCheckBox("Apply to selected bones only")
+        self.selected_bones_only_cb.setChecked(False)
+        self.selected_bones_only_cb.setToolTip("Only apply animation to currently selected bones in Blender")
+        layout.addWidget(self.selected_bones_only_cb)
+        
+        # Current selection display
+        self.selected_bones_info = QLabel("No bones selected")
+        self.selected_bones_info.setObjectName("infoLabel")
+        self.selected_bones_info.setStyleSheet("font-size: 9px; color: #888; padding: 2px 8px;")
+        layout.addWidget(self.selected_bones_info)
+        
         # Frame offset option
         frame_layout = QHBoxLayout()
         frame_layout.addWidget(QLabel("Start at frame:"))
@@ -264,6 +277,24 @@ class AnimationLibraryMainWindow(QMainWindow):
         
         frame_layout.addStretch()
         layout.addLayout(frame_layout)
+        
+        # Channel selection
+        channels_group = QGroupBox("Channels to Apply")
+        channels_layout = QHBoxLayout(channels_group)
+        
+        self.location_cb = QCheckBox("Location")
+        self.location_cb.setChecked(True)
+        channels_layout.addWidget(self.location_cb)
+        
+        self.rotation_cb = QCheckBox("Rotation")
+        self.rotation_cb.setChecked(True)
+        channels_layout.addWidget(self.rotation_cb)
+        
+        self.scale_cb = QCheckBox("Scale")
+        self.scale_cb.setChecked(True)
+        channels_layout.addWidget(self.scale_cb)
+        
+        layout.addWidget(channels_group)
         
         return section
     
@@ -411,6 +442,32 @@ class AnimationLibraryMainWindow(QMainWindow):
                 color: #ffffff;
             }
             
+            QCheckBox {
+                color: #ffffff;
+                spacing: 8px;
+            }
+            
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #555;
+                border-radius: 3px;
+                background-color: #404040;
+            }
+            
+            QCheckBox::indicator:checked {
+                background-color: #0078d4;
+                border-color: #0078d4;
+            }
+            
+            QCheckBox::indicator:checked:hover {
+                background-color: #106ebe;
+            }
+            
+            QCheckBox::indicator:hover {
+                border-color: #0078d4;
+            }
+            
             #infoLabel {
                 color: #cccccc;
                 font-size: 11px;
@@ -511,16 +568,29 @@ class AnimationLibraryMainWindow(QMainWindow):
             self.current_rig_label.setText("Current Rig: Not detected")
             self.current_rig_label.setStyleSheet("color: #888;")
         
+        # Update bone selection display
         if bones:
             if len(bones) <= 5:
                 bone_text = ", ".join(bones)
             else:
                 bone_text = f"{', '.join(bones[:3])} +{len(bones)-3} more"
             self.bones_label.setText(f"Bones: {bone_text}")
+            
+            # Update selected bones info for apply options
+            self.selected_bones_info.setText(f"Selected: {len(bones)} bones ({', '.join(bones[:2])}{'...' if len(bones) > 2 else ''})")
+            self.selected_bones_info.setStyleSheet("font-size: 9px; color: #51cf66; padding: 2px 8px;")
         else:
             self.bones_label.setText("No bones selected")
+            self.selected_bones_info.setText("No bones selected")
+            self.selected_bones_info.setStyleSheet("font-size: 9px; color: #888; padding: 2px 8px;")
         
         self.frame_label.setText(f"Frame: {frame}")
+        
+        # Update selected bones only checkbox state hint
+        if bones and self.selected_bones_only_cb.isChecked():
+            self.selected_bones_only_cb.setToolTip(f"Apply animation to {len(bones)} selected bones: {', '.join(bones[:3])}{'...' if len(bones) > 3 else ''}")
+        else:
+            self.selected_bones_only_cb.setToolTip("Only apply animation to currently selected bones in Blender")
     
     def on_animation_extracted(self, animation_data: dict):
         """Handle animation extraction from Blender"""
@@ -594,6 +664,22 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "No Armature", "Please select an armature in Blender")
             return
         
+        # Check if selected bones only is enabled but no bones are selected
+        if self.selected_bones_only_cb.isChecked() and not self.current_selection:
+            reply = QMessageBox.question(
+                self, "No Bones Selected",
+                "You have 'Apply to selected bones only' enabled but no bones are currently selected.\n\n"
+                "Do you want to apply to all bones instead?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            # If Yes, we'll apply to all bones by setting selected_bones_only to False
+            apply_to_selected_only = False
+        else:
+            apply_to_selected_only = self.selected_bones_only_cb.isChecked()
+        
         # Check rig compatibility
         animation_rig_type = animation_data.get('rig_type', 'Unknown')
         current_rig_type = self.detect_current_rig_type()
@@ -620,11 +706,32 @@ class AnimationLibraryMainWindow(QMainWindow):
             if reply == QMessageBox.No:
                 return
         
-        # Get apply options (simplified - no complex mapping)
+        # Show confirmation for selected bones application
+        if apply_to_selected_only and self.current_selection:
+            bone_list = ", ".join(self.current_selection[:3])
+            if len(self.current_selection) > 3:
+                bone_list += f" +{len(self.current_selection)-3} more"
+            
+            reply = QMessageBox.question(
+                self, "Apply to Selected Bones",
+                f"Apply animation '{animation_data['name']}' to selected bones only?\n\n"
+                f"Target bones: {bone_list}\n"
+                f"Total: {len(self.current_selection)} bones",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        # Get apply options with user settings
         apply_options = ApplyOptions(
-            selected_bones_only=False,  # Apply to all bones for simplicity
+            selected_bones_only=apply_to_selected_only,
             frame_offset=self.frame_offset_spin.value(),
-            channels={'location': True, 'rotation': True, 'scale': True},
+            channels={
+                'location': self.location_cb.isChecked(),
+                'rotation': self.rotation_cb.isChecked(),
+                'scale': self.scale_cb.isChecked()
+            },
             bone_mapping={}  # No bone mapping needed for same rig types
         )
         
@@ -632,13 +739,22 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
         
-        # Send apply request
-        success = self.blender_connection.apply_animation(animation_data, apply_options)
+        # Send apply request with F-curve data
+        # Make sure we pass the original blender data that contains F-curves
+        animation_to_send = animation_data.copy()
+        if '_original_blender_data' in animation_data:
+            # Merge the F-curve data into the main animation data
+            original_data = animation_data['_original_blender_data']
+            if 'bone_data' in original_data:
+                animation_to_send['bone_data'] = original_data['bone_data']
+        
+        success = self.blender_connection.apply_animation(animation_to_send, apply_options)
         if not success:
             self.progress_bar.setVisible(False)
             QMessageBox.warning(self, "Apply Failed", "Failed to send apply request to Blender")
         else:
-            self.status_bar.showMessage(f"Applying animation '{animation_data['name']}'...", 2000)
+            apply_mode = "selected bones" if apply_to_selected_only else "all bones"
+            self.status_bar.showMessage(f"Applying '{animation_data['name']}' to {apply_mode}...", 2000)
     
     def detect_current_rig_type(self) -> str:
         """Detect the rig type of the currently selected armature"""

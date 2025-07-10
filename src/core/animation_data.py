@@ -120,7 +120,8 @@ class AnimationMetadata:
             
             bone_data[bone_name] = bone_anim
         
-        return cls(
+        # Create metadata and preserve the original blender_data for F-curve info
+        metadata = cls(
             id=animation_id,
             name=blender_data['action_name'],
             description=f"Extracted from {blender_data['armature_name']}",
@@ -136,10 +137,15 @@ class AnimationMetadata:
             tags=AnimationTagger.generate_tags(blender_data, bone_data),
             category="extracted"
         )
+        
+        # Store the original blender data for F-curve reconstruction
+        metadata._original_blender_data = blender_data
+        
+        return metadata
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
-        return {
+        result = {
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -163,6 +169,12 @@ class AnimationMetadata:
             "quality_rating": self.quality_rating,
             "usage_count": self.usage_count
         }
+        
+        # Preserve original blender data with F-curve info if available
+        if hasattr(self, '_original_blender_data'):
+            result['_original_blender_data'] = self._original_blender_data
+        
+        return result
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AnimationMetadata':
@@ -210,7 +222,7 @@ class AnimationMetadata:
             
             bone_data[bone_name] = bone_anim
         
-        return cls(
+        metadata = cls(
             id=data['id'],
             name=data['name'],
             description=data['description'],
@@ -228,6 +240,12 @@ class AnimationMetadata:
             quality_rating=data.get('quality_rating', 0.0),
             usage_count=data.get('usage_count', 0)
         )
+        
+        # Restore original blender data if available
+        if '_original_blender_data' in data:
+            metadata._original_blender_data = data['_original_blender_data']
+        
+        return metadata
 
 
 class RigTypeDetector:

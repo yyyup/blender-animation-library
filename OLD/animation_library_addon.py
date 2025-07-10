@@ -38,11 +38,11 @@ class AnimationLibraryServer:
             self.is_running = True
             
             bpy.app.timers.register(self.handle_server, first_interval=0.1)
-            print(f"🚀 Animation Library server started on {self.host}:{self.port}")
+            print("Animation Library server started on " + str(self.host) + ":" + str(self.port))
             return True
             
         except Exception as e:
-            print(f"❌ Failed to start server: {e}")
+            print("Failed to start server: " + str(e))
             return False
             
     def handle_server(self):
@@ -56,7 +56,7 @@ class AnimationLibraryServer:
                     if ready:
                         self.connection, addr = self.socket.accept()
                         self.connection.setblocking(False)
-                        print(f"📱 Client connected: {addr}")
+                        print("Client connected: " + str(addr))
                         self.send_message({'type': 'connected', 'status': 'success'})
                 except socket.error:
                     pass
@@ -70,12 +70,12 @@ class AnimationLibraryServer:
                             self.message_buffer += data.decode('utf-8')
                             self.process_buffered_messages()
                         else:
-                            print("📱 Client disconnected")
+                            print("Client disconnected")
                             self.connection.close()
                             self.connection = None
                             self.message_buffer = ""
                 except socket.error as e:
-                    print(f"Connection error: {e}")
+                    print("Connection error: " + str(e))
                     self.connection.close()
                     self.connection = None
                     self.message_buffer = ""
@@ -83,7 +83,7 @@ class AnimationLibraryServer:
             self.check_selection_changes()
                 
         except Exception as e:
-            print(f"Server error: {e}")
+            print("Server error: " + str(e))
                 
         return 0.1
         
@@ -99,8 +99,7 @@ class AnimationLibraryServer:
                     data = json.loads(complete_message)
                     self.process_message_data(data)
                 except json.JSONDecodeError as e:
-                    print(f"❌ JSON decode error: {e}")
-                    print(f"❌ Message was: {complete_message[:100]}...")
+                    print("JSON decode error: " + str(e))
         
     def check_selection_changes(self):
         current_selection = set()
@@ -125,13 +124,12 @@ class AnimationLibraryServer:
             }
             
             self.send_message(selection_data)
-            print(f"🎯 Selection: {list(current_selection)}")
         
     def process_message_data(self, data):
         try:
             command = data.get('command')
             
-            print(f"📨 Received command: {command}")
+            print("Received command: " + str(command))
             
             if command == 'ping':
                 self.send_message({'type': 'pong', 'timestamp': data.get('timestamp')})
@@ -148,14 +146,14 @@ class AnimationLibraryServer:
             elif command == 'test_message':
                 self.send_message({
                     'type': 'test_response', 
-                    'message': 'Hello from Blender! 🎬'
+                    'message': 'Hello from Blender!'
                 })
                 
         except Exception as e:
-            print(f"❌ Error processing command: {e}")
+            print("Error processing command: " + str(e))
             self.send_message({
                 'type': 'error',
-                'message': f'Command processing error: {str(e)}'
+                'message': 'Command processing error: ' + str(e)
             })
             
     def send_scene_info(self):
@@ -196,6 +194,9 @@ class AnimationLibraryServer:
         bone_data = {}
         frame_range = [float('inf'), float('-inf')]
         
+        print("Extracting animation: " + action.name)
+        print("Total F-curves: " + str(len(action.fcurves)))
+        
         for fcurve in action.fcurves:
             if 'pose.bones[' in fcurve.data_path:
                 bone_name = fcurve.data_path.split('"')[1]
@@ -203,20 +204,45 @@ class AnimationLibraryServer:
                 if bone_name not in bone_data:
                     bone_data[bone_name] = {
                         'channels': set(),
-                        'keyframe_count': 0
+                        'keyframe_count': 0,
+                        'fcurves': {}
                     }
                 
                 channel = fcurve.data_path.split('.')[-1]
-                bone_data[bone_name]['channels'].add(f"{channel}[{fcurve.array_index}]")
+                channel_key = channel + "[" + str(fcurve.array_index) + "]"
+                bone_data[bone_name]['channels'].add(channel_key)
                 bone_data[bone_name]['keyframe_count'] += len(fcurve.keyframe_points)
                 
+                # Store F-curve data for reconstruction
+                keyframes = []
                 for keyframe in fcurve.keyframe_points:
                     frame = keyframe.co[0]
+                    value = keyframe.co[1]
+                    keyframes.append({
+                        'frame': frame,
+                        'value': value,
+                        'interpolation': keyframe.interpolation,
+                        'handle_left_type': keyframe.handle_left_type,
+                        'handle_right_type': keyframe.handle_right_type,
+                        'handle_left': [keyframe.handle_left[0], keyframe.handle_left[1]],
+                        'handle_right': [keyframe.handle_right[0], keyframe.handle_right[1]]
+                    })
+                    
                     frame_range[0] = min(frame_range[0], frame)
                     frame_range[1] = max(frame_range[1], frame)
+                
+                bone_data[bone_name]['fcurves'][channel_key] = {
+                    'data_path': fcurve.data_path,
+                    'array_index': fcurve.array_index,
+                    'keyframes': keyframes
+                }
+                
+                print("Bone " + bone_name + "." + channel_key + ": " + str(len(keyframes)) + " keyframes")
         
-        for bone in bone_data:
-            bone_data[bone]['channels'] = list(bone_data[bone]['channels'])
+        # Convert sets to lists for JSON serialization
+        for bone_name, bone_info in bone_data.items():
+            bone_info['channels'] = list(bone_info['channels'])
+            print("Bone " + bone_name + ": " + str(len(bone_info['fcurves'])) + " F-curves, " + str(bone_info['keyframe_count']) + " total keyframes")
         
         extraction_data = {
             'type': 'animation_extracted',
@@ -229,172 +255,208 @@ class AnimationLibraryServer:
         }
         
         self.send_message(extraction_data)
-        print(f"📤 Extracted animation: {action.name}")
+        print("Extracted animation with F-curve data: " + action.name)
+        print("Total: " + str(len(bone_data)) + " bones, F-curve data stored for reconstruction")
         
     def apply_animation_from_library(self, data):
-        if not (bpy.context.active_object and 
-                bpy.context.active_object.type == 'ARMATURE'):
-            self.send_message({
-                'type': 'error',
-                'message': 'No active armature found. Please select an armature to apply animation to.'
-            })
-            return
+        try:
+            print("Apply animation command received")
             
-        animation_data = data.get('animation_data')
-        bone_mapping = data.get('bone_mapping', {})
-        frame_offset = data.get('frame_offset', 1)
-        
-        if not animation_data or not animation_data.get('bone_data'):
-            self.send_message({
-                'type': 'error',
-                'message': 'No animation data provided'
-            })
-            return
-            
-        target_armature = bpy.context.active_object
-        
-        source_armature_name = animation_data.get('armature_source')
-        source_action_name = animation_data.get('name')
-        
-        source_action = None
-        for action in bpy.data.actions:
-            if source_action_name in action.name:
-                source_action = action
-                break
-        
-        if not source_action:
-            print(f"⚠️ Source action '{source_action_name}' not found, creating test animation")
-            self.create_test_animation(animation_data, target_armature, bone_mapping, frame_offset)
-            return
-        
-        action_name = f"Applied_{source_action_name}_{int(bpy.context.scene.frame_current)}"
-        action_name = action_name.replace("|", "_").replace(" ", "_")
-        
-        if not target_armature.animation_data:
-            target_armature.animation_data_create()
-            
-        new_action = bpy.data.actions.new(action_name)
-        target_armature.animation_data.action = new_action
-        
-        print(f"🎬 Copying REAL animation: {source_action_name}")
-        print(f"   From: {source_armature_name}")
-        print(f"   To: {target_armature.name}")
-        
-        bones_applied = 0
-        keyframes_applied = 0
-        bones_processed = set()
-        
-        for fcurve in source_action.fcurves:
-            if 'pose.bones[' in fcurve.data_path:
-                source_bone = fcurve.data_path.split('"')[1]
+            if not (bpy.context.active_object and 
+                    bpy.context.active_object.type == 'ARMATURE'):
+                error_msg = 'No active armature found. Please select an armature to apply animation to.'
+                print("Error: " + error_msg)
+                self.send_message({'type': 'error', 'message': error_msg})
+                return
                 
-                target_bone = bone_mapping.get(source_bone, source_bone)
+            animation_data = data.get('animation_data')
+            if not animation_data:
+                error_msg = 'No animation data provided'
+                print("Error: " + error_msg)
+                self.send_message({'type': 'error', 'message': error_msg})
+                return
+            
+            print("Animation: " + str(animation_data.get('name', 'Unknown')))
+            
+            # Get apply options
+            selected_bones_only = data.get('selected_bones_only', False)
+            frame_offset = data.get('frame_offset', 1)
+            channels = data.get('channels', {'location': True, 'rotation': True, 'scale': True})
+            
+            print("Options: selected_only=" + str(selected_bones_only) + ", offset=" + str(frame_offset))
+            
+            target_armature = bpy.context.active_object
+            
+            # Determine target bones FIRST to filter the data early
+            if selected_bones_only and bpy.context.selected_pose_bones:
+                target_bone_names = {bone.name for bone in bpy.context.selected_pose_bones}
+                print("Applying to " + str(len(target_bone_names)) + " selected bones: " + str(list(target_bone_names)[:5]))
+            else:
+                target_bone_names = {bone.name for bone in target_armature.pose.bones}
+                print("Applying to all " + str(len(target_bone_names)) + " bones")
+            
+            # FILTER the bone data early - only get bones we're actually applying to
+            bone_data = animation_data.get('bone_data', {})
+            filtered_bone_data = {}
+            
+            for bone_name, bone_info in bone_data.items():
+                if bone_name in target_bone_names and bone_name in target_armature.pose.bones:
+                    filtered_bone_data[bone_name] = bone_info
+            
+            print("Filtered to " + str(len(filtered_bone_data)) + " bones to process (from " + str(len(bone_data)) + " total)")
+            
+            if len(filtered_bone_data) == 0:
+                error_msg = "No matching bones found to apply animation to"
+                print("Error: " + error_msg)
+                self.send_message({'type': 'error', 'message': error_msg})
+                return
+            
+            # Create new action
+            action_name = "Applied_" + str(animation_data.get('name', 'Animation')) + "_" + str(int(bpy.context.scene.frame_current))
+            action_name = action_name.replace("|", "_").replace(" ", "_")
+            
+            if not target_armature.animation_data:
+                target_armature.animation_data_create()
                 
-                if target_bone in target_armature.pose.bones:
-                    new_data_path = fcurve.data_path.replace(f'"{source_bone}"', f'"{target_bone}"')
+            new_action = bpy.data.actions.new(action_name)
+            target_armature.animation_data.action = new_action
+            
+            print("Created action: " + action_name)
+            
+            bones_applied = 0
+            keyframes_applied = 0
+            bones_with_fcurves = 0
+            
+            # Now only process the filtered bone data
+            total_bones = len(filtered_bone_data)
+            processed_count = 0
+            
+            for source_bone_name, bone_info in filtered_bone_data.items():
+                try:
+                    processed_count += 1
                     
-                    new_fcurve = new_action.fcurves.new(new_data_path, index=fcurve.array_index)
+                    # Show progress for every bone when processing small numbers
+                    if total_bones <= 20 or processed_count % 10 == 0:
+                        print("Progress: " + str(processed_count) + "/" + str(total_bones) + " - " + source_bone_name)
                     
-                    for keyframe in fcurve.keyframe_points:
-                        new_frame = keyframe.co[0] + frame_offset - 1
-                        new_value = keyframe.co[1]
-                        
-                        new_keyframe = new_fcurve.keyframe_points.insert(new_frame, new_value)
-                        
-                        new_keyframe.interpolation = keyframe.interpolation
-                        new_keyframe.handle_left_type = keyframe.handle_left_type
-                        new_keyframe.handle_right_type = keyframe.handle_right_type
-                        
-                        keyframes_applied += 1
+                    # Get F-curve data if available
+                    fcurves_data = bone_info.get('fcurves', {})
                     
-                    if source_bone not in bones_processed:
+                    if fcurves_data:
+                        # Use stored F-curve data (preferred method)
+                        bones_with_fcurves += 1
+                        
+                        for channel_key, fcurve_info in fcurves_data.items():
+                            try:
+                                # Check channel filter
+                                channel_name = channel_key.split('[')[0]
+                                if not self.should_apply_channel(channel_name, channels):
+                                    continue
+                                
+                                data_path = fcurve_info['data_path']
+                                array_index = fcurve_info['array_index']
+                                
+                                # Create F-curve
+                                new_fcurve = new_action.fcurves.new(data_path, index=array_index)
+                                
+                                # Batch insert keyframes
+                                keyframe_data = fcurve_info['keyframes']
+                                if keyframe_data:
+                                    # Pre-allocate keyframes
+                                    new_fcurve.keyframe_points.add(len(keyframe_data))
+                                    
+                                    # Set keyframe data in batch
+                                    for i, kf_data in enumerate(keyframe_data):
+                                        new_frame = kf_data['frame'] + frame_offset - 1
+                                        new_value = kf_data['value']
+                                        
+                                        kf_point = new_fcurve.keyframe_points[i]
+                                        kf_point.co = (new_frame, new_value)
+                                        kf_point.interpolation = kf_data.get('interpolation', 'BEZIER')
+                                        kf_point.handle_left_type = kf_data.get('handle_left_type', 'AUTO')
+                                        kf_point.handle_right_type = kf_data.get('handle_right_type', 'AUTO')
+                                        
+                                        keyframes_applied += 1
+                                    
+                                    # Update F-curve once
+                                    new_fcurve.update()
+                                    
+                            except Exception as e:
+                                print("Warning: Error applying F-curve " + channel_key + " for " + source_bone_name)
+                        
                         bones_applied += 1
-                        bones_processed.add(source_bone)
-                        print(f"   ✓ {source_bone} → {target_bone} ({len(fcurve.keyframe_points)} keys)")
-        
-        bpy.context.view_layer.update()
-        
-        for area in bpy.context.screen.areas:
-            if area.type == 'TIMELINE':
-                area.tag_redraw()
-            elif area.type == 'VIEW_3D':
-                area.tag_redraw()
-            elif area.type == 'DOPESHEET_EDITOR':
-                area.tag_redraw()
-        
-        bpy.context.scene.frame_set(bpy.context.scene.frame_current)
-        
-        target_armature.animation_data.action = new_action
-        
-        result_data = {
-            'type': 'animation_applied',
-            'action_name': action_name,
-            'bones_applied': bones_applied,
-            'keyframes_applied': keyframes_applied,
-            'frame_range': animation_data.get('frame_range'),
-            'target_armature': target_armature.name,
-            'source_action': source_action_name
-        }
-        
-        self.send_message(result_data)
-        print(f"✨ Applied REAL animation: {bones_applied} bones, {keyframes_applied} keyframes")
-        
-    def create_test_animation(self, animation_data, target_armature, bone_mapping, frame_offset):
-        action_name = f"Test_{animation_data['name']}_{int(bpy.context.scene.frame_current)}"
-        action_name = action_name.replace("|", "_").replace(" ", "_")
-        
-        if not target_armature.animation_data:
-            target_armature.animation_data_create()
+                        
+                    else:
+                        # Quick fallback for bones without F-curve data
+                        channels_list = bone_info.get('channels', [])
+                        
+                        try:
+                            if any('location' in ch for ch in channels_list) and channels.get('location', True):
+                                pose_bone = target_armature.pose.bones[source_bone_name]
+                                start_frame = int(animation_data.get('frame_range', [1, 40])[0]) + frame_offset - 1
+                                pose_bone.keyframe_insert(data_path="location", frame=start_frame)
+                                keyframes_applied += 3
+                            
+                            bones_applied += 1
+                        except Exception as e:
+                            print("Warning: Error creating fallback for " + source_bone_name)
+                            
+                except Exception as e:
+                    print("Error processing bone " + source_bone_name + ": " + str(e))
+                    continue
             
-        new_action = bpy.data.actions.new(action_name)
-        target_armature.animation_data.action = new_action
-        
-        bone_data = animation_data.get('bone_data', {})
-        frame_range = animation_data.get('frame_range', [1, 40])
-        
-        bones_applied = 0
-        keyframes_applied = 0
-        
-        for source_bone, bone_info in bone_data.items():
-            target_bone = bone_mapping.get(source_bone, source_bone)
+            print("COMPLETED: Applied " + str(bones_applied) + " bones, " + str(keyframes_applied) + " keyframes")
+            print("F-curve data available for: " + str(bones_with_fcurves) + " bones")
             
-            if target_bone in target_armature.pose.bones:
-                pose_bone = target_armature.pose.bones[target_bone]
-                
-                channels = bone_info.get('channels', [])
-                
-                if any('location' in ch for ch in channels):
-                    start_frame = int(frame_range[0])
-                    end_frame = int(frame_range[1])
-                    
-                    pose_bone.location = (0, 0, 0)
-                    pose_bone.keyframe_insert(data_path="location", frame=start_frame)
-                    
-                    pose_bone.location = (0, 2, 0)
-                    pose_bone.keyframe_insert(data_path="location", frame=end_frame)
-                    
-                    keyframes_applied += 6
-                    
-                bones_applied += 1
-                
-        bpy.context.view_layer.update()
-        for area in bpy.context.screen.areas:
-            if area.type in ['TIMELINE', 'VIEW_3D', 'DOPESHEET_EDITOR']:
-                area.tag_redraw()
-        bpy.context.scene.frame_set(bpy.context.scene.frame_current)
-                
-        result_data = {
-            'type': 'animation_applied',
-            'action_name': action_name,
-            'bones_applied': bones_applied,
-            'keyframes_applied': keyframes_applied,
-            'frame_range': frame_range,
-            'target_armature': target_armature.name,
-            'source_action': 'test_fallback'
-        }
+            # Minimal viewport update
+            bpy.context.view_layer.update()
+            
+            result_data = {
+                'type': 'animation_applied',
+                'action_name': action_name,
+                'bones_applied': bones_applied,
+                'keyframes_applied': keyframes_applied,
+                'frame_range': animation_data.get('frame_range'),
+                'target_armature': target_armature.name,
+                'source_action': animation_data.get('name', 'stored_data')
+            }
+            
+            self.send_message(result_data)
+            print("Animation application completed successfully")
+            
+        except Exception as e:
+            error_msg = "Animation application failed: " + str(e)
+            print("Error: " + error_msg)
+            import traceback
+            traceback.print_exc()
+            self.send_message({'type': 'error', 'message': error_msg})
+    
+    def should_apply_channel(self, channel_name, channels_filter):
+        """Check if a channel should be applied based on user selection"""
+        if 'location' in channel_name:
+            return channels_filter.get('location', True)
+        elif 'rotation' in channel_name:
+            return channels_filter.get('rotation', True)
+        elif 'scale' in channel_name:
+            return channels_filter.get('scale', True)
+        return True
+    
+    def create_basic_keyframes(self, armature, bone_name, channel_type, frame_range, frame_offset):
+        """Create basic keyframes as fallback when F-curve data is not available"""
+        pose_bone = armature.pose.bones[bone_name]
+        start_frame = int(frame_range[0]) + frame_offset - 1
+        end_frame = int(frame_range[1]) + frame_offset - 1
         
-        self.send_message(result_data)
-        print(f"✨ Applied test animation: {bones_applied} bones, {keyframes_applied} keyframes")
+        if channel_type == 'location':
+            pose_bone.location = (0, 0, 0)
+            pose_bone.keyframe_insert(data_path="location", frame=start_frame)
+            pose_bone.location = (0, 0.1, 0)  # Small movement
+            pose_bone.keyframe_insert(data_path="location", frame=end_frame)
+        elif channel_type == 'rotation_quaternion':
+            pose_bone.rotation_quaternion = (1, 0, 0, 0)
+            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=start_frame)
+            pose_bone.rotation_quaternion = (0.99, 0.1, 0, 0)  # Small rotation
+            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=end_frame)
         
     def send_message(self, data):
         if self.connection:
@@ -402,9 +464,8 @@ class AnimationLibraryServer:
                 message = json.dumps(data, indent=2)
                 framed_message = message + "\n###END_MESSAGE###\n"
                 self.connection.send(framed_message.encode('utf-8'))
-                print(f"📤 Sent message: {data.get('type', 'unknown')} ({len(message)} chars)")
             except Exception as e:
-                print(f"❌ Failed to send message: {e}")
+                print("Failed to send message: " + str(e))
                 
     def stop_server(self):
         self.is_running = False
@@ -412,7 +473,7 @@ class AnimationLibraryServer:
             self.connection.close()
         if self.socket:
             self.socket.close()
-        print("🛑 Animation Library server stopped")
+        print("Animation Library server stopped")
 
 class ANIMLIB_OT_start_server(Operator):
     bl_idname = "animlib.start_server"
@@ -430,7 +491,7 @@ class ANIMLIB_OT_start_server(Operator):
         animation_server = AnimationLibraryServer(prefs.host, prefs.port)
         
         if animation_server.start_server():
-            self.report({'INFO'}, f"Server started on {prefs.host}:{prefs.port}")
+            self.report({'INFO'}, "Server started on " + prefs.host + ":" + str(prefs.port))
             return {'FINISHED'}
         else:
             self.report({'ERROR'}, "Failed to start server")
@@ -464,7 +525,7 @@ class ANIMLIB_OT_test_connection(Operator):
         if animation_server and animation_server.is_running and animation_server.connection:
             animation_server.send_message({
                 'type': 'test_from_blender',
-                'message': 'Test message from Blender add-on! 🎭',
+                'message': 'Test message from Blender add-on!',
                 'current_selection': list(animation_server.last_selection)
             })
             self.report({'INFO'}, "Test message sent")
@@ -490,18 +551,18 @@ class ANIMLIB_PT_main_panel(Panel):
         box.label(text="Server Status:", icon='NETWORK_DRIVE')
         
         if animation_server and animation_server.is_running:
-            box.label(text="🟢 Running", icon='CHECKMARK')
-            box.label(text=f"Port: {prefs.port}")
+            box.label(text="Running", icon='CHECKMARK')
+            box.label(text="Port: " + str(prefs.port))
             
             if animation_server.connection:
-                box.label(text="📱 Client Connected", icon='LINKED')
+                box.label(text="Client Connected", icon='LINKED')
             else:
-                box.label(text="⏳ Waiting for client...", icon='TIME')
+                box.label(text="Waiting for client...", icon='TIME')
             
             box.operator("animlib.stop_server", icon='PAUSE')
             box.operator("animlib.test_connection", icon='NETWORK_DRIVE')
         else:
-            box.label(text="🔴 Stopped", icon='X')
+            box.label(text="Stopped", icon='X')
             box.operator("animlib.start_server", icon='PLAY')
         
         if (bpy.context.active_object and 
@@ -512,14 +573,14 @@ class ANIMLIB_PT_main_panel(Panel):
             selection_box.label(text="Current Selection:", icon='BONE_DATA')
             
             armature = bpy.context.active_object
-            selection_box.label(text=f"Armature: {armature.name}")
+            selection_box.label(text="Armature: " + armature.name)
             
             bones = [bone.name for bone in bpy.context.selected_pose_bones]
             if len(bones) <= 3:
                 for bone in bones:
-                    selection_box.label(text=f"  • {bone}")
+                    selection_box.label(text="  • " + bone)
             else:
-                selection_box.label(text=f"  • {len(bones)} bones selected")
+                selection_box.label(text="  • " + str(len(bones)) + " bones selected")
 
 class ANIMLIB_preferences(AddonPreferences):
     bl_idname = __name__
