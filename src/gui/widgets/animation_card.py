@@ -1,15 +1,16 @@
 """
-Animation Card Widget - Studio Library Style
-Professional animation card display with metadata, actions, and drag & drop support
+Animation Card Widget - COMPLETE FILE WITH FIXED THUMBNAIL REFRESH
+Replace your entire src/gui/widgets/animation_card.py with this file
 """
 
+import time
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QWidget, QMenu, QToolButton, QGraphicsDropShadowEffect, QGridLayout,
     QApplication, QInputDialog
 )
 from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer, QMimeData
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient, QDrag
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient, QDrag, QPixmapCache
 from typing import Dict, Any, Optional
 import sys
 from pathlib import Path
@@ -23,12 +24,13 @@ from core.animation_data import AnimationMetadata
 
 
 class AnimationThumbnail(QLabel):
-    """Clean thumbnail widget with 120x120 size and no overlays"""
+    """Clean thumbnail widget with 120x120 size and AGGRESSIVE cache clearing"""
     
     def __init__(self, animation_metadata: AnimationMetadata, parent=None):
         super().__init__(parent)
         self.animation_metadata = animation_metadata
         self.is_selected = False
+        self.last_loaded_path = None  # Track last loaded file path
         
         self.setFixedSize(120, 120)
         self.setAlignment(Qt.AlignCenter)
@@ -54,26 +56,12 @@ class AnimationThumbnail(QLabel):
             thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
             if thumbnail_path.exists():
                 # Load the actual thumbnail image
-                pixmap = QPixmap(str(thumbnail_path))
+                pixmap = self._load_pixmap_no_cache(thumbnail_path)
                 if not pixmap.isNull():
-                    # Scale to fit 120x120 while maintaining aspect ratio
-                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    
-                    # Create a centered pixmap with dark background
-                    final_pixmap = QPixmap(120, 120)
-                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
-                    
-                    painter = QPainter(final_pixmap)
-                    painter.setRenderHint(QPainter.Antialiasing)
-                    
-                    # Center the scaled image
-                    x = (120 - scaled_pixmap.width()) // 2
-                    y = (120 - scaled_pixmap.height()) // 2
-                    painter.drawPixmap(x, y, scaled_pixmap)
-                    
-                    painter.end()
-                    self.setPixmap(final_pixmap)
+                    self._set_centered_pixmap(pixmap)
+                    self.last_loaded_path = str(thumbnail_path)
                     thumbnail_loaded = True
+                    print(f"🖼️ Loaded thumbnail from metadata: {thumbnail_path}")
         
         # Fallback to animation name-based thumbnail path
         if not thumbnail_loaded:
@@ -83,169 +71,106 @@ class AnimationThumbnail(QLabel):
             thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
             
             if thumbnail_path.exists():
-                pixmap = QPixmap(str(thumbnail_path))
+                pixmap = self._load_pixmap_no_cache(thumbnail_path)
                 if not pixmap.isNull():
-                    # Scale to fit 120x120 while maintaining aspect ratio
-                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    
-                    # Create a centered pixmap with dark background
-                    final_pixmap = QPixmap(120, 120)
-                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
-                    
-                    painter = QPainter(final_pixmap)
-                    painter.setRenderHint(QPainter.Antialiasing)
-                    
-                    # Center the scaled image
-                    x = (120 - scaled_pixmap.width()) // 2
-                    y = (120 - scaled_pixmap.height()) // 2
-                    painter.drawPixmap(x, y, scaled_pixmap)
-                    
-                    painter.end()
-                    self.setPixmap(final_pixmap)
+                    self._set_centered_pixmap(pixmap)
+                    self.last_loaded_path = str(thumbnail_path)
                     thumbnail_loaded = True
+                    print(f"🖼️ Loaded thumbnail from ID: {thumbnail_path}")
+        
+        # NEW: Search for any thumbnail file containing the animation name
+        if not thumbnail_loaded:
+            thumbnail_path = self._find_thumbnail_by_name()
+            if thumbnail_path:
+                pixmap = self._load_pixmap_no_cache(thumbnail_path)
+                if not pixmap.isNull():
+                    self._set_centered_pixmap(pixmap)
+                    self.last_loaded_path = str(thumbnail_path)
+                    thumbnail_loaded = True
+                    print(f"🖼️ Found thumbnail by name search: {thumbnail_path}")
         
         # Fallback to placeholder icon if no image found
         if not thumbnail_loaded:
             self.show_placeholder_icon()
+            self.last_loaded_path = None
+            print(f"⚠️ No thumbnail found, using placeholder")
     
-    def show_placeholder_icon(self):
-        """Show a clean placeholder icon for missing thumbnails"""
-        pixmap = QPixmap(120, 120)
-        pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
-        
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Draw simple animation icon
-        painter.setPen(QPen(QColor("#666666"), 2))
-        painter.setBrush(QBrush(QColor("#666666")))
-        
-        # Simple figure representation
-        center_x, center_y = 60, 60
-        
-        # Head
-        painter.drawEllipse(center_x-8, center_y-25, 16, 16)
-        
-        # Body
-        painter.drawLine(center_x, center_y-9, center_x, center_y+15)
-        
-        # Arms
-        painter.drawLine(center_x-12, center_y-5, center_x+12, center_y-5)
-        
-        # Legs
-        painter.drawLine(center_x, center_y+15, center_x-8, center_y+30)
-        painter.drawLine(center_x, center_y+15, center_x+8, center_y+30)
-        
-        painter.end()
-        self.setPixmap(pixmap)
-    
-    def set_selected(self, selected: bool):
-        """Set selection state"""
-        self.is_selected = selected
-        # Selection will be handled by the parent card
-    
-def refresh_thumbnail(self, animation_name: str):
-    """Refresh thumbnail for the specified animation with cache clearing"""
-    # Check if this thumbnail is for the updated animation
-    animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
-    
-    # Match by name or ID
-    if (animation_name == self.animation_metadata.name or 
-        animation_name == animation_id):
-        
-        print(f"🔄 CACHE: Clearing Qt pixmap cache before refresh")
-        
-        # Clear Qt's pixmap cache completely
-        from PySide6.QtGui import QPixmapCache
-        QPixmapCache.clear()
-        
-        # Force reload the thumbnail image with cache busting
-        self.load_thumbnail_image_force_refresh()
-        print(f"🖼️ Refreshed thumbnail for: {animation_name}")
-
-    def load_thumbnail_image_force_refresh(self):
-        """Load thumbnail image with forced refresh (no cache)"""
-        thumbnail_loaded = False
-        
-        # Check if animation has thumbnail path in metadata
-        if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
-            thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
-            if thumbnail_path.exists():
-                # Force refresh by checking file modification time
-                try:
-                    file_stat = thumbnail_path.stat()
-                    current_time = time.time()
-                    
-                    print(f"🔍 CACHE: File exists, size: {file_stat.st_size}, modified: {file_stat.st_mtime}")
-                    
-                    # Load with unique identifier to avoid cache
-                    cache_key = f"{thumbnail_path}_{file_stat.st_mtime}_{file_stat.st_size}"
-                    pixmap = QPixmap(str(thumbnail_path))
-                    
-                    if not pixmap.isNull():
-                        # Force detach from cache
-                        pixmap = pixmap.copy()
-                        
-                        # Scale to fit while maintaining aspect ratio
-                        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        
-                        # Create centered pixmap with dark background
-                        final_pixmap = QPixmap(120, 120)
-                        final_pixmap.fill(QColor(46, 46, 46))
-                        
-                        painter = QPainter(final_pixmap)
-                        painter.setRenderHint(QPainter.Antialiasing)
-                        
-                        # Center the scaled image
-                        x = (120 - scaled_pixmap.width()) // 2
-                        y = (120 - scaled_pixmap.height()) // 2
-                        painter.drawPixmap(x, y, scaled_pixmap)
-                        painter.end()
-                        
-                        self.setPixmap(final_pixmap)
-                        thumbnail_loaded = True
-                        print(f"✅ CACHE: Successfully loaded fresh thumbnail")
-                    else:
-                        print(f"❌ CACHE: Pixmap is null after loading")
-                except Exception as e:
-                    print(f"❌ CACHE: Error loading thumbnail: {e}")
-        
-        # Fallback to animation name-based thumbnail path
-        if not thumbnail_loaded:
-            animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
-            thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+    def _find_thumbnail_by_name(self) -> Optional[Path]:
+        """Find thumbnail file by searching for files containing the animation name"""
+        try:
+            thumbnails_dir = Path("animation_library") / "thumbnails"
+            if not thumbnails_dir.exists():
+                return None
             
-            if thumbnail_path.exists():
-                try:
-                    # Same cache-busting approach
-                    pixmap = QPixmap(str(thumbnail_path))
-                    if not pixmap.isNull():
-                        pixmap = pixmap.copy()  # Force detach from cache
-                        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        
-                        final_pixmap = QPixmap(120, 120)
-                        final_pixmap.fill(QColor(46, 46, 46))
-                        
-                        painter = QPainter(final_pixmap)
-                        painter.setRenderHint(QPainter.Antialiasing)
-                        
-                        x = (120 - scaled_pixmap.width()) // 2
-                        y = (120 - scaled_pixmap.height()) // 2
-                        painter.drawPixmap(x, y, scaled_pixmap)
-                        painter.end()
-                        
-                        self.setPixmap(final_pixmap)
-                        thumbnail_loaded = True
-                        print(f"✅ CACHE: Loaded fallback thumbnail")
-                except Exception as e:
-                    print(f"❌ CACHE: Error loading fallback thumbnail: {e}")
+            animation_name = self.animation_metadata.name
+            
+            # Search for PNG files containing the animation name
+            all_thumbnails = list(thumbnails_dir.glob("*.png"))
+            matching_files = []
+            
+            for thumbnail_file in all_thumbnails:
+                if animation_name in thumbnail_file.name:
+                    matching_files.append(thumbnail_file)
+            
+            if matching_files:
+                # Use the most recent file if multiple matches
+                most_recent = max(matching_files, key=lambda f: f.stat().st_mtime)
+                print(f"🔍 Found matching thumbnail: {most_recent.name}")
+                return most_recent
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error searching for thumbnail: {e}")
+            return None
+    
+    def _load_pixmap_no_cache(self, image_path: Path) -> QPixmap:
+        """Load pixmap without using Qt's cache system"""
+        try:
+            # Force fresh load by checking file modification time
+            file_stat = image_path.stat()
+            
+            # Clear any existing cache for this file
+            QPixmapCache.remove(str(image_path))
+            
+            # Load with explicit no-cache
+            pixmap = QPixmap(str(image_path))
+            
+            if not pixmap.isNull():
+                # Force detach from any internal caching
+                pixmap = pixmap.copy()
+                return pixmap
+            else:
+                print(f"❌ THUMBNAIL: Pixmap is null for: {image_path}")
+                return QPixmap()
+                
+        except Exception as e:
+            print(f"❌ THUMBNAIL: Error loading {image_path}: {e}")
+            return QPixmap()
+    
+    def _set_centered_pixmap(self, pixmap: QPixmap):
+        """Set pixmap centered in the label with dark background"""
+        if pixmap.isNull():
+            return
         
-        # Show placeholder if still not loaded
-        if not thumbnail_loaded:
-            self.show_placeholder_icon()
-            print(f"⚠️ CACHE: Using placeholder icon")
-
+        # Scale to fit 120x120 while maintaining aspect ratio
+        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        
+        # Create a centered pixmap with dark background
+        final_pixmap = QPixmap(120, 120)
+        final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+        
+        painter = QPainter(final_pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Center the scaled image
+        x = (120 - scaled_pixmap.width()) // 2
+        y = (120 - scaled_pixmap.height()) // 2
+        painter.drawPixmap(x, y, scaled_pixmap)
+        
+        painter.end()
+        self.setPixmap(final_pixmap)
+    
     def show_placeholder_icon(self):
         """Show a clean placeholder icon for missing thumbnails"""
         pixmap = QPixmap(120, 120)
@@ -274,9 +199,6 @@ def refresh_thumbnail(self, animation_name: str):
         painter.drawLine(center_x, center_y+15, center_x-8, center_y+30)
         painter.drawLine(center_x, center_y+15, center_x+8, center_y+30)
         
-        painter.end()
-        self.setPixmap(pixmap)
-    
         painter.end()
         self.setPixmap(pixmap)
     
@@ -286,26 +208,178 @@ def refresh_thumbnail(self, animation_name: str):
         # Selection will be handled by the parent card
     
     def refresh_thumbnail(self, animation_name: str):
-        """Refresh thumbnail for the specified animation"""
+        """Refresh thumbnail for the specified animation with MAXIMUM force refresh"""
         # Check if this thumbnail is for the updated animation
         animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
         
         # Match by name or ID
         if (animation_name == self.animation_metadata.name or 
             animation_name == animation_id):
-            # Reload the thumbnail image
-            self.load_thumbnail_image()
-            print(f"🖼️ Refreshed thumbnail for: {animation_name}")
+            
+            print(f"🔄 THUMBNAIL: Starting MAXIMUM force refresh for: {animation_name}")
+            
+            # STEP 1: Clear ALL Qt pixmap caches AGGRESSIVELY
+            QPixmapCache.clear()
+            print(f"🧹 THUMBNAIL: Cleared Qt pixmap cache")
+            
+            # STEP 2: Clear this widget's current pixmap
+            self.clear()
+            print(f"🧹 THUMBNAIL: Cleared widget pixmap")
+            
+            # STEP 3: Force Qt to process all pending events
+            QApplication.processEvents()
+            
+            # STEP 4: Wait for file system to sync
+            time.sleep(0.2)  # Increased wait time
+            
+            # STEP 5: Force reload with maximum aggression
+            self.load_thumbnail_image_force_refresh()
+            
+            # STEP 6: Force widget update
+            self.update()
+            self.repaint()
+            QApplication.processEvents()
+            
+            print(f"✅ THUMBNAIL: MAXIMUM force refresh completed for: {animation_name}")
     
+    def load_thumbnail_image_force_refresh(self):
+        """Load thumbnail image with MAXIMUM force refresh - searches all possible locations"""
+        thumbnail_loaded = False
+        
+        print(f"🔍 THUMBNAIL: Starting comprehensive thumbnail search...")
+        
+        # METHOD 1: Check metadata path with force refresh
+        if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
+            thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
+            print(f"🔍 METHOD 1: Checking metadata path: {thumbnail_path}")
+            
+            if thumbnail_path.exists():
+                try:
+                    file_stat = thumbnail_path.stat()
+                    print(f"🔍 METHOD 1: File exists - size: {file_stat.st_size}, modified: {file_stat.st_mtime}")
+                    
+                    pixmap = self._load_pixmap_force_refresh(thumbnail_path)
+                    if not pixmap.isNull():
+                        self._set_centered_pixmap(pixmap)
+                        thumbnail_loaded = True
+                        print(f"✅ METHOD 1: Successfully loaded from metadata path")
+                    else:
+                        print(f"❌ METHOD 1: Pixmap is null from metadata path")
+                        
+                except Exception as e:
+                    print(f"❌ METHOD 1: Error loading from metadata path: {e}")
+        
+        # METHOD 2: Try animation ID-based path
+        if not thumbnail_loaded:
+            animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+            thumbnail_filename = f"{animation_id}.png"
+            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            
+            print(f"🔍 METHOD 2: Checking ID-based path: {thumbnail_path}")
+            
+            if thumbnail_path.exists():
+                try:
+                    file_stat = thumbnail_path.stat()
+                    print(f"🔍 METHOD 2: File exists - size: {file_stat.st_size}, modified: {file_stat.st_mtime}")
+                    
+                    pixmap = self._load_pixmap_force_refresh(thumbnail_path)
+                    if not pixmap.isNull():
+                        self._set_centered_pixmap(pixmap)
+                        thumbnail_loaded = True
+                        print(f"✅ METHOD 2: Successfully loaded from ID-based path")
+                    else:
+                        print(f"❌ METHOD 2: Pixmap is null from ID-based path")
+                        
+                except Exception as e:
+                    print(f"❌ METHOD 2: Error loading from ID-based path: {e}")
+        
+        # METHOD 3: Search all thumbnails directory for matching files
+        if not thumbnail_loaded:
+            print(f"🔍 METHOD 3: Searching thumbnails directory...")
+            
+            try:
+                thumbnails_dir = Path("animation_library") / "thumbnails"
+                if thumbnails_dir.exists():
+                    animation_name = self.animation_metadata.name
+                    all_thumbnails = list(thumbnails_dir.glob("*.png"))
+                    print(f"🔍 METHOD 3: Found {len(all_thumbnails)} total PNG files")
+                    
+                    # Find files containing the animation name
+                    matching_files = []
+                    for thumbnail_file in all_thumbnails:
+                        if animation_name in thumbnail_file.name:
+                            matching_files.append(thumbnail_file)
+                            print(f"🔍 METHOD 3: MATCH found: {thumbnail_file.name}")
+                    
+                    if matching_files:
+                        # Use the most recent file
+                        most_recent = max(matching_files, key=lambda f: f.stat().st_mtime)
+                        print(f"🔍 METHOD 3: Using most recent: {most_recent.name}")
+                        
+                        pixmap = self._load_pixmap_force_refresh(most_recent)
+                        if not pixmap.isNull():
+                            self._set_centered_pixmap(pixmap)
+                            thumbnail_loaded = True
+                            print(f"✅ METHOD 3: Successfully loaded from search")
+                        else:
+                            print(f"❌ METHOD 3: Pixmap is null from search")
+                    else:
+                        print(f"🔍 METHOD 3: No matching files found for '{animation_name}'")
+                        
+                        # Debug: List all files
+                        print(f"🔍 METHOD 3: All available files:")
+                        for f in all_thumbnails[:10]:  # Show first 10
+                            print(f"   - {f.name}")
+                        if len(all_thumbnails) > 10:
+                            print(f"   ... and {len(all_thumbnails) - 10} more")
+                            
+            except Exception as e:
+                print(f"❌ METHOD 3: Error in directory search: {e}")
+        
+        # Show placeholder if nothing worked
+        if not thumbnail_loaded:
+            self.show_placeholder_icon()
+            print(f"⚠️ THUMBNAIL: All methods failed, using placeholder icon")
+    
+    def _load_pixmap_force_refresh(self, image_path: Path) -> QPixmap:
+        """Load pixmap with MAXIMUM force - bypassing ALL caching mechanisms"""
+        try:
+            # Method 1: Clear Qt's pixmap cache for this specific file
+            QPixmapCache.remove(str(image_path))
+            
+            # Method 2: Read file directly into memory to bypass OS file caching
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            print(f"🔍 FORCE: Read {len(image_data)} bytes from {image_path.name}")
+            
+            # Method 3: Create pixmap from raw data
+            pixmap = QPixmap()
+            success = pixmap.loadFromData(image_data)
+            
+            if success and not pixmap.isNull():
+                # Method 4: Force detach to ensure no internal caching
+                pixmap = pixmap.copy()
+                print(f"✅ FORCE: Successfully created pixmap from raw data")
+                return pixmap
+            else:
+                print(f"❌ FORCE: Failed to create pixmap from raw data")
+                return QPixmap()
+                
+        except Exception as e:
+            print(f"❌ FORCE: Error in maximum force refresh: {e}")
+            return QPixmap()
+
+
 class AnimationCard(QFrame):
-    """Professional animation card with Studio Library styling and drag & drop support"""
+    """Professional animation card with FIXED thumbnail refresh support"""
     
     # Signals
     apply_requested = Signal(dict)
     edit_requested = Signal(dict)
     delete_requested = Signal(dict)
     preview_requested = Signal(dict)
-    move_to_folder_requested = Signal(dict, str)  # NEW: For folder movement
+    move_to_folder_requested = Signal(dict, str)
     
     def __init__(self, animation_data: Dict[str, Any], parent=None):
         super().__init__(parent)
@@ -320,11 +394,11 @@ class AnimationCard(QFrame):
         self.setup_style()
         
         # Enable drag and drop
-        self.setAcceptDrops(False)  # Cards don't accept drops, only initiate drags
+        self.setAcceptDrops(False)
     
     def setup_ui(self):
         """Setup the card UI layout - Studio Library style"""
-        self.setFixedSize(160, 220)  # Compact size for Studio Library style
+        self.setFixedSize(160, 220)
         self.setFrameStyle(QFrame.NoFrame)
         
         # Main layout
@@ -505,11 +579,9 @@ class AnimationCard(QFrame):
     
     def mousePressEvent(self, event):
         """Handle mouse press for selection and drag start"""
-        print(f"🖱️ Mouse press on card: {self.animation_metadata.name}")
         if event.button() == Qt.LeftButton:
             self.set_selected(True)
             self.drag_start_position = event.pos()
-            print(f"🖱️ Drag start position set: {self.drag_start_position}")
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
@@ -524,27 +596,20 @@ class AnimationCard(QFrame):
         distance = (event.pos() - self.drag_start_position).manhattanLength()
         min_distance = QApplication.startDragDistance()
         
-        print(f"🖱️ Mouse move - distance: {distance}, min: {min_distance}")
-        
         if distance < min_distance:
             return
         
-        print(f"🎬 Starting drag for: {self.animation_metadata.name}")
         # Start drag operation
         self.start_drag()
     
     def start_drag(self):
         """Start drag operation for this animation card"""
-        print(f"🚀 Drag started for animation: {self.animation_metadata.name}")
-        
         drag = QDrag(self)
         mime_data = QMimeData()
         
         # Set animation ID as drag data
         animation_id = self.animation_data.get('id', '')
         mime_data.setText(f"animation_id:{animation_id}")
-        
-        print(f"🎬 Drag data: animation_id:{animation_id}")
         
         drag.setMimeData(mime_data)
         
@@ -562,10 +627,7 @@ class AnimationCard(QFrame):
         drag.setHotSpot(scaled_pixmap.rect().center())
         
         # Execute drag
-        print(f"🎬 Executing drag...")
         drop_action = drag.exec_(Qt.MoveAction)
-        
-        print(f"🎬 Drag completed for animation: {self.animation_metadata.name}, action: {drop_action}")
     
     def contextMenuEvent(self, event):
         """Show context menu with folder move options"""
@@ -574,7 +636,7 @@ class AnimationCard(QFrame):
         # Move to folder submenu
         move_menu = QMenu("Move to Folder", self)
         
-        # Add some common folder options (these would come from the library manager)
+        # Add some common folder options
         root_action = QAction("📁 Root", self)
         root_action.triggered.connect(lambda: self.move_to_folder_requested.emit(self.animation_data, "Root"))
         move_menu.addAction(root_action)
@@ -582,8 +644,7 @@ class AnimationCard(QFrame):
         # Separator for custom folders
         move_menu.addSeparator()
         
-        # TODO: Add dynamic folder list from library manager
-        # For now, just add a placeholder
+        # Create new folder option
         new_folder_action = QAction("+ Create New Folder...", self)
         new_folder_action.triggered.connect(self.show_folder_creation_dialog)
         move_menu.addAction(new_folder_action)
@@ -629,39 +690,34 @@ class AnimationCard(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
     
-    def update_animation_data(self, animation_data: Dict[str, Any]):
-        """Update the animation data and refresh display"""
-        self.animation_data = animation_data
-        self.animation_metadata = AnimationMetadata.from_dict(animation_data)
-        
-        # Update UI elements
-        self.title_label.setText(self.animation_metadata.name)
-        
-        # Regenerate thumbnail
-        self.thumbnail.animation_metadata = self.animation_metadata
-        self.thumbnail.generate_thumbnail()
-    
-    def set_loading_state(self, loading: bool):
-        """Set card loading state"""
-        self.apply_btn.setEnabled(not loading)
-        self.options_btn.setEnabled(not loading)
-        
-        if loading:
-            self.apply_btn.setText("Applying...")
-        else:
-            self.apply_btn.setText("Apply")
-    
     def refresh_thumbnail(self, animation_name: str):
-        """Refresh thumbnail for the specified animation"""
+        """Refresh thumbnail for the specified animation - AGGRESSIVE VERSION"""
         # Check if this card is for the updated animation
         if (animation_name == self.animation_metadata.name or 
             animation_name == getattr(self.animation_metadata, 'id', self.animation_metadata.name)):
-            # Refresh the thumbnail
+            
+            print(f"🎬 CARD: Starting AGGRESSIVE thumbnail refresh for: {animation_name}")
+            
+            # Use the enhanced refresh method from the thumbnail widget
             self.thumbnail.refresh_thumbnail(animation_name)
-            print(f"🎬 Refreshed card thumbnail for: {animation_name}")
-    
+            
+            # Force update the entire card multiple times
+            self.update()
+            self.repaint()
+            QApplication.processEvents()
+            
+            # Wait a bit and force another update
+            QTimer.singleShot(100, lambda: [
+                self.update(),
+                self.repaint(),
+                QApplication.processEvents()
+            ])
+            
+            print(f"✅ CARD: AGGRESSIVE thumbnail refresh completed for: {animation_name}")
+
+
 class AnimationCardGrid(QWidget):
-    """Grid container for animation cards with responsive layout"""
+    """Grid container for animation cards with responsive layout and FIXED refresh"""
     
     animation_selected = Signal(dict)  # Emits selected animation data
     
@@ -746,6 +802,7 @@ class AnimationCardGrid(QWidget):
         
         # Emit selection signal
         self.animation_selected.emit(card.animation_data)
+    
     def remove_card(self, animation_card):
         """Remove animation card from grid with proper cleanup"""
         if animation_card in self.cards:
@@ -768,18 +825,6 @@ class AnimationCardGrid(QWidget):
             self.refresh_layout()
             
             print("✅ Animation card removed and layout refreshed")
-    
-    def rebuild_grid(self, new_cards_data):
-        """Completely rebuild the grid with new animation data"""
-        print(f"🔧 Rebuilding grid with {len(new_cards_data)} animations")
-        
-        # Step 1: Clear everything with proper cleanup
-        self.clear_cards()
-        
-        # Step 2: Note - cards should be created externally and added via add_card()
-        # This method is for coordination with the main window refresh logic
-        
-        print(f"✅ Grid cleared and ready for {len(new_cards_data)} new cards")
     
     def bulk_add_cards(self, cards_list):
         """Add multiple cards efficiently without refreshing layout each time"""
@@ -942,17 +987,34 @@ class AnimationCardGrid(QWidget):
         print("✅ Layout refreshed successfully")
     
     def refresh_thumbnail(self, animation_name: str):
-        """Refresh thumbnail for the specified animation across all cards"""
+        """Refresh thumbnail for the specified animation across ALL cards - AGGRESSIVE VERSION"""
         refreshed_count = 0
+        
+        print(f"🔄 GRID: Starting AGGRESSIVE thumbnail refresh for all cards matching: {animation_name}")
+        
         for card in self.cards:
             if hasattr(card, 'refresh_thumbnail'):
                 # Check if this card is for the updated animation
                 if (animation_name == card.animation_metadata.name or 
                     animation_name == getattr(card.animation_metadata, 'id', card.animation_metadata.name)):
+                    
+                    print(f"🎬 GRID: Refreshing card for: {card.animation_metadata.name}")
                     card.refresh_thumbnail(animation_name)
                     refreshed_count += 1
         
         if refreshed_count > 0:
-            print(f"🔄 Refreshed {refreshed_count} card(s) for animation: {animation_name}")
+            print(f"✅ GRID: Refreshed {refreshed_count} card(s) for animation: {animation_name}")
+            
+            # Force grid-wide update
+            self.update()
+            self.repaint()
+            QApplication.processEvents()
+            
+            # Delayed additional refresh
+            QTimer.singleShot(200, lambda: [
+                self.update(),
+                self.repaint(),
+                QApplication.processEvents()
+            ])
         else:
-            print(f"⚠️ No cards found for animation: {animation_name}")
+            print(f"⚠️ GRID: No cards found for animation: {animation_name}")

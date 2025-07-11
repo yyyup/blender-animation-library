@@ -1011,7 +1011,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         print(f"📊 Updated folder counts: {folder_stats}")
     
     def on_thumbnail_updated(self, animation_name: str):
-        """Handle thumbnail updated confirmation from Blender with debounce"""
+        """Handle thumbnail updated confirmation from Blender with AGGRESSIVE refresh"""
         # Simple debounce - ignore if same animation was just updated
         if hasattr(self, '_last_thumbnail_update'):
             if (self._last_thumbnail_update[0] == animation_name and 
@@ -1021,10 +1021,149 @@ class AnimationLibraryMainWindow(QMainWindow):
         self._last_thumbnail_update = (animation_name, time.time())
         
         try:
-            logger.info(f"Thumbnail updated for: {animation_name}")
+            print(f"🔄 MAIN: Received thumbnail update for: {animation_name}")
+            
+            # STEP 1: Refresh animation grid cards
+            animation_grid = self.layout_manager.get_widget('animation_grid')
+            if animation_grid:
+                print(f"🎬 MAIN: Refreshing animation grid...")
+                animation_grid.refresh_thumbnail(animation_name)
+            
+            # STEP 2: Refresh metadata panel if it's showing this animation
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            if metadata_panel and metadata_panel.current_animation:
+                if animation_name == metadata_panel.current_animation.name:
+                    print(f"🖼️ MAIN: Refreshing metadata panel...")
+                    metadata_panel.refresh_thumbnail(animation_name)
+            
+            # STEP 3: Force application-wide refresh
+            print(f"🔄 MAIN: Forcing application refresh...")
+            QApplication.processEvents()
+            
+            # STEP 4: Delayed additional refresh
+            QTimer.singleShot(300, lambda: [
+                QApplication.processEvents(),
+                print(f"✅ MAIN: Delayed refresh completed for: {animation_name}")
+            ])
+            
+            logger.info(f"✅ Thumbnail refreshed across all components for: {animation_name}")
+            
         except Exception as e:
-            logger.error(f"Error handling thumbnail update: {e}")
+            logger.error(f"❌ Error handling thumbnail update: {e}")
+            import traceback
+            traceback.print_exc()
 
+    def setup_connections(self):
+        """Setup signal connections - UPDATED VERSION"""
+        # Get widgets from layout manager
+        toolbar = self.layout_manager.get_widget('toolbar')
+        folder_tree = self.layout_manager.get_widget('folder_tree')
+        animation_grid = self.layout_manager.get_widget('animation_grid')
+        metadata_panel = self.layout_manager.get_widget('metadata_panel')
+        
+        # Blender connection signals
+        self.blender_connection.connected.connect(self.on_blender_connected)
+        self.blender_connection.disconnected.connect(self.on_blender_disconnected)
+        self.blender_connection.connection_error.connect(self.on_connection_error)
+        
+        # Data signals
+        self.blender_connection.scene_info_received.connect(self.on_scene_info_received)
+        self.blender_connection.selection_updated.connect(self.on_selection_updated)
+        self.blender_connection.animation_extracted.connect(self.on_animation_extracted)
+        self.blender_connection.animation_applied.connect(self.on_animation_applied)
+        self.blender_connection.error_received.connect(self.on_blender_error)
+        
+        # FIXED: Thumbnail update signal connection
+        self.blender_connection.thumbnail_updated.connect(self.on_thumbnail_updated)
+        
+        # UI signals
+        toolbar.connect_requested.connect(self.toggle_blender_connection)
+        toolbar.extract_requested.connect(self.extract_animation)
+        toolbar.search_changed.connect(self.on_search_changed)
+        toolbar.tag_filter_changed.connect(self.on_tag_filter_changed)
+        toolbar.rig_filter_changed.connect(self.on_rig_filter_changed)
+        
+        folder_tree.folder_selected.connect(self.on_folder_selected)
+        folder_tree.animation_moved.connect(self.on_animation_moved)
+        folder_tree.folder_created.connect(self.on_folder_created)
+        folder_tree.folder_deleted.connect(self.on_folder_deleted)
+        animation_grid.animation_selected.connect(self.on_animation_selected)
+        
+        # FIXED: Metadata panel thumbnail update signal
+        metadata_panel.thumbnail_update_requested.connect(self.on_thumbnail_update_requested)
+
+    def refresh_library_display(self):
+        """Refresh the animation library display with proper cleanup and thumbnail connections"""
+        print("🔄 Starting library display refresh...")
+        
+        animations = self.get_filtered_animations()
+        animation_grid = self.layout_manager.get_widget('animation_grid')
+        
+        # Check if we have a large dataset and enable performance mode
+        is_large_dataset = len(animations) > 200
+        if is_large_dataset:
+            print(f"📊 Large dataset detected ({len(animations)} animations) - enabling performance mode")
+            animation_grid.update_grid_performance_mode(large_dataset=True)
+        
+        # Step 1: Clear all existing cards with proper memory cleanup
+        print(f"🧹 Clearing existing cards before adding {len(animations)} new ones")
+        animation_grid.clear_cards()
+        
+        # Step 2: Force Qt to process pending deletions
+        QApplication.processEvents()
+        
+        # Step 3: Create new animation cards (but don't add them one by one)
+        new_cards = []
+        cards_created = 0
+        
+        for animation_data in animations:
+            try:
+                card = AnimationCard(animation_data.to_dict())
+                
+                # Connect signals INCLUDING thumbnail refresh
+                card.apply_requested.connect(self.apply_animation)
+                card.preview_requested.connect(self.preview_animation)
+                card.edit_requested.connect(self.edit_animation)
+                card.delete_requested.connect(self.delete_animation)
+                card.move_to_folder_requested.connect(self.move_animation_to_folder)
+                
+                new_cards.append(card)
+                cards_created += 1
+                
+            except Exception as e:
+                print(f"⚠️ Failed to create card for animation {animation_data.name}: {e}")
+                continue
+        
+        # Step 4: Add all cards at once for better performance
+        if new_cards:
+            if is_large_dataset:
+                # Use bulk add for large datasets
+                animation_grid.bulk_add_cards(new_cards)
+            else:
+                # Use regular add for smaller datasets
+                for card in new_cards:
+                    animation_grid.add_card(card)
+        
+        # Step 5: Re-enable updates if we disabled them
+        if is_large_dataset:
+            animation_grid.update_grid_performance_mode(large_dataset=False)
+        
+        # Step 6: Update other UI components
+        self.update_statistics()
+        self.update_folder_tree()
+        
+        print(f"✅ Library display refreshed: {cards_created}/{len(animations)} cards created successfully")
+        
+        # Step 7: Final cleanup and validation
+        if cards_created != len(animations):
+            print(f"⚠️ Warning: Created {cards_created} cards but expected {len(animations)}")
+            
+        # Force cleanup of any orphaned widgets
+        animation_grid.force_layout_cleanup()
+        
+        # Final memory cleanup
+        QApplication.processEvents()
+        print(f"🔄 Refreshed display: {len(animations)} animations shown")
 
 def main():
     """Main application entry point"""
