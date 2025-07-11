@@ -36,6 +36,7 @@ class BlenderConnectionHandler(QObject):
     animation_extracted = Signal(dict)
     animation_applied = Signal(dict)
     error_received = Signal(str)
+    thumbnail_updated = Signal(str)  # Emits animation_name when thumbnail is updated
     
     def __init__(self, host='127.0.0.1', port=8080):
         super().__init__()
@@ -56,6 +57,7 @@ class BlenderConnectionHandler(QObject):
             self.connection.register_handler("selection_update", self._on_selection_update)
             self.connection.register_handler("animation_extracted", self._on_animation_extracted)
             self.connection.register_handler("animation_applied", self._on_animation_applied)
+            self.connection.register_handler("thumbnail_updated", self._on_thumbnail_updated)
             self.connection.register_handler("error", self._on_error)
             self.connection.register_error_handler(self._on_connection_error)
             
@@ -133,6 +135,36 @@ class BlenderConnectionHandler(QObject):
         except Exception as e:
             logger.error(f"Failed to apply animation: {e}")
             self.error_received.emit(f"Application failed: {str(e)}")
+            return False
+    
+    def update_thumbnail(self, animation_id: str) -> bool:
+        """Request thumbnail update for a specific animation"""
+        if self.connection:
+            return self.connection.update_thumbnail(animation_id)
+        return False
+    
+    def send_update_thumbnail(self, animation_name: str) -> bool:
+        """Send update thumbnail command to Blender"""
+        if not self.connection:
+            logger.error("No connection to Blender")
+            return False
+        
+        try:
+            # Create the message as specified in the requirements
+            message_data = {
+                "command": "update_thumbnail", 
+                "animation_name": animation_name
+            }
+            
+            # Use the Message.command method to create the message
+            from core.communication import Message
+            message = Message.command("update_thumbnail", animation_name=animation_name)
+            
+            logger.info(f"Sending thumbnail update request for: {animation_name}")
+            return self.connection.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send thumbnail update: {e}")
             return False
     
     def _normalize_animation_data(self, animation_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -217,6 +249,30 @@ class BlenderConnectionHandler(QObject):
         logger.info(f"Animation applied using {storage_method} method in {application_time:.1f}s")
         
         self.animation_applied.emit(message.data)
+    
+    def _on_thumbnail_updated(self, message: Message):
+        """Handle thumbnail updated response from Blender"""
+        # Handle both possible message formats from server.py
+        if "status" in message.data and message.data["status"] == "thumbnail_updated":
+            animation_name = message.data.get("animation_name")
+            if animation_name:
+                logger.info(f"Thumbnail updated for animation: {animation_name}")
+                self.thumbnail_updated.emit(animation_name)
+                # Call refresh_thumbnail function if it exists
+                self.refresh_thumbnail(animation_name)
+        else:
+            # Handle legacy format
+            animation_name = message.data.get("animation_name")
+            if animation_name:
+                logger.info(f"Thumbnail updated for animation: {animation_name}")
+                self.thumbnail_updated.emit(animation_name)
+                self.refresh_thumbnail(animation_name)
+    
+    def refresh_thumbnail(self, animation_name: str):
+        """Refresh thumbnail for the specified animation"""
+        # This will trigger GUI refresh - signal is emitted above
+        # Individual widget refresh is handled by the signal connections
+        logger.info(f"Refreshing thumbnail for: {animation_name}")
     
     def _on_error(self, message: Message):
         """Handle error from Blender"""

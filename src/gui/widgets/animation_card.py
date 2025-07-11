@@ -23,113 +23,118 @@ from core.animation_data import AnimationMetadata
 
 
 class AnimationThumbnail(QLabel):
-    """Custom thumbnail widget with performance indicators and overlays"""
+    """Clean thumbnail widget with 120x120 size and no overlays"""
     
     def __init__(self, animation_metadata: AnimationMetadata, parent=None):
         super().__init__(parent)
         self.animation_metadata = animation_metadata
         self.is_selected = False
         
-        self.setFixedSize(180, 120)
+        self.setFixedSize(120, 120)
         self.setAlignment(Qt.AlignCenter)
         
-        # Generate thumbnail
-        self.generate_thumbnail()
+        # Load thumbnail image with clean styling
+        self.load_thumbnail_image()
         
-        # Setup styling
+        # Clean styling with rounded corners
         self.setStyleSheet("""
             QLabel {
-                border: 1px solid #555;
-                border-radius: 6px;
-                background-color: #393939;
+                border: none;
+                border-radius: 8px;
+                background-color: #2e2e2e;
             }
         """)
     
-    def generate_thumbnail(self):
-        """Generate a procedural thumbnail for the animation"""
-        # Create a pixmap for the thumbnail
-        pixmap = QPixmap(180, 120)
-        pixmap.fill(QColor(57, 57, 57))  # Dark background
+    def load_thumbnail_image(self):
+        """Load thumbnail image from file or show placeholder"""
+        thumbnail_loaded = False
+        
+        # Check if animation has thumbnail path in metadata
+        if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
+            thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
+            if thumbnail_path.exists():
+                # Load the actual thumbnail image
+                pixmap = QPixmap(str(thumbnail_path))
+                if not pixmap.isNull():
+                    # Scale to fit 120x120 while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    # Create a centered pixmap with dark background
+                    final_pixmap = QPixmap(120, 120)
+                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    
+                    painter = QPainter(final_pixmap)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    # Center the scaled image
+                    x = (120 - scaled_pixmap.width()) // 2
+                    y = (120 - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                    
+                    painter.end()
+                    self.setPixmap(final_pixmap)
+                    thumbnail_loaded = True
+        
+        # Fallback to animation name-based thumbnail path
+        if not thumbnail_loaded:
+            # Try to construct thumbnail path from animation name
+            animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+            thumbnail_filename = f"{animation_id}.png"
+            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            
+            if thumbnail_path.exists():
+                pixmap = QPixmap(str(thumbnail_path))
+                if not pixmap.isNull():
+                    # Scale to fit 120x120 while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    # Create a centered pixmap with dark background
+                    final_pixmap = QPixmap(120, 120)
+                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    
+                    painter = QPainter(final_pixmap)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    # Center the scaled image
+                    x = (120 - scaled_pixmap.width()) // 2
+                    y = (120 - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                    
+                    painter.end()
+                    self.setPixmap(final_pixmap)
+                    thumbnail_loaded = True
+        
+        # Fallback to placeholder icon if no image found
+        if not thumbnail_loaded:
+            self.show_placeholder_icon()
+    
+    def show_placeholder_icon(self):
+        """Show a clean placeholder icon for missing thumbnails"""
+        pixmap = QPixmap(120, 120)
+        pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
         
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Background gradient
-        gradient = QLinearGradient(0, 0, 180, 120)
-        gradient.setColorAt(0, QColor(70, 70, 70))
-        gradient.setColorAt(1, QColor(45, 45, 45))
-        painter.fillRect(0, 0, 180, 120, QBrush(gradient))
+        # Draw simple animation icon
+        painter.setPen(QPen(QColor("#666666"), 2))
+        painter.setBrush(QBrush(QColor("#666666")))
         
-        # Rig type indicator
-        from core.animation_data import RigTypeDetector
-        rig_color = RigTypeDetector.get_rig_color(self.animation_metadata.rig_type)
-        rig_emoji = RigTypeDetector.get_rig_emoji(self.animation_metadata.rig_type)
+        # Simple figure representation
+        center_x, center_y = 60, 60
         
-        # Top-left rig indicator
-        painter.setPen(QPen(QColor(rig_color), 2))
-        painter.setBrush(QBrush(QColor(rig_color).darker(150)))
-        painter.drawRoundedRect(8, 8, 24, 16, 3, 3)
+        # Head
+        painter.drawEllipse(center_x-8, center_y-25, 16, 16)
         
-        # Rig emoji/text
-        painter.setPen(QColor("white"))
-        painter.setFont(QFont("Arial", 8, QFont.Bold))
-        painter.drawText(10, 20, rig_emoji)
+        # Body
+        painter.drawLine(center_x, center_y-9, center_x, center_y+15)
         
-        # Storage method indicator (top-right)
-        perf_info = self.animation_metadata.get_performance_info()
-        status_color = "#51cf66" if self.animation_metadata.is_blend_file_storage() else "#ffd43b"
+        # Arms
+        painter.drawLine(center_x-12, center_y-5, center_x+12, center_y-5)
         
-        painter.setPen(QPen(QColor(status_color), 2))
-        painter.setBrush(QBrush(QColor(status_color).darker(150)))
-        painter.drawRoundedRect(148, 8, 24, 16, 3, 3)
-        
-        # Performance emoji
-        painter.setPen(QColor("white"))
-        painter.setFont(QFont("Arial", 8, QFont.Bold))
-        painter.drawText(152, 20, perf_info['status_emoji'])
-        
-        # Central animation icon/visualization
-        painter.setPen(QPen(QColor("#4a90e2"), 3))
-        
-        # Draw simple bone visualization
-        bone_count = min(self.animation_metadata.total_bones_animated, 8)
-        center_x, center_y = 90, 60
-        
-        for i in range(bone_count):
-            angle = (i / bone_count) * 360
-            import math
-            x = center_x + 20 * math.cos(math.radians(angle))
-            y = center_y + 20 * math.sin(math.radians(angle))
-            
-            # Draw bone as small circle
-            painter.setBrush(QBrush(QColor("#4a90e2")))
-            painter.drawEllipse(int(x-3), int(y-3), 6, 6)
-            
-            # Draw connection to center
-            painter.drawLine(center_x, center_y, int(x), int(y))
-        
-        # Central hub
-        painter.setBrush(QBrush(QColor("#4a90e2").lighter(120)))
-        painter.drawEllipse(center_x-5, center_y-5, 10, 10)
-        
-        # Duration indicator (bottom-right)
-        duration_text = f"{int(self.animation_metadata.duration_frames)}f"
-        painter.setPen(QPen(QColor("black"), 1))
-        painter.setBrush(QBrush(QColor(0, 0, 0, 180)))
-        painter.drawRoundedRect(130, 95, 40, 16, 8, 8)
-        
-        painter.setPen(QColor("white"))
-        painter.setFont(QFont("Arial", 9, QFont.Bold))
-        painter.drawText(135, 106, duration_text)
-        
-        # Keyframe density visualization (bottom)
-        keyframe_density = self.animation_metadata.total_keyframes / max(self.animation_metadata.duration_frames, 1)
-        density_width = int((keyframe_density / 20) * 160)  # Max 160px width
-        density_width = min(max(density_width, 10), 160)  # Clamp between 10-160
-        
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(QColor("#ffd43b").darker(130)))
-        painter.drawRoundedRect(10, 108, density_width, 4, 2, 2)
+        # Legs
+        painter.drawLine(center_x, center_y+15, center_x-8, center_y+30)
+        painter.drawLine(center_x, center_y+15, center_x+8, center_y+30)
         
         painter.end()
         self.setPixmap(pixmap)
@@ -137,24 +142,123 @@ class AnimationThumbnail(QLabel):
     def set_selected(self, selected: bool):
         """Set selection state"""
         self.is_selected = selected
-        if selected:
-            self.setStyleSheet("""
-                QLabel {
-                    border: 2px solid #4a90e2;
-                    border-radius: 6px;
-                    background-color: #454545;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QLabel {
-                    border: 1px solid #555;
-                    border-radius: 6px;
-                    background-color: #393939;
-                }
-            """)
-
-
+        # Selection will be handled by the parent card
+    
+    def refresh_thumbnail(self, animation_name: str):
+        """Refresh thumbnail for the specified animation"""
+        # Check if animation has thumbnail path in metadata
+        thumbnail_loaded = False
+        
+        # Check if animation has thumbnail path in metadata
+        if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
+            thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
+            if thumbnail_path.exists():
+                # Load the actual thumbnail image
+                pixmap = QPixmap(str(thumbnail_path))
+                if not pixmap.isNull():
+                    # Scale to fit 120x120 while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    # Create a centered pixmap with dark background
+                    final_pixmap = QPixmap(120, 120)
+                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    
+                    painter = QPainter(final_pixmap)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    # Center the scaled image
+                    x = (120 - scaled_pixmap.width()) // 2
+                    y = (120 - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                    
+                    painter.end()
+                    self.setPixmap(final_pixmap)
+                    thumbnail_loaded = True
+        
+        # Fallback to animation name-based thumbnail path
+        if not thumbnail_loaded:
+            # Try to construct thumbnail path from animation name
+            animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+            thumbnail_filename = f"{animation_id}.png"
+            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            
+            if thumbnail_path.exists():
+                pixmap = QPixmap(str(thumbnail_path))
+                if not pixmap.isNull():
+                    # Scale to fit 120x120 while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    # Create a centered pixmap with dark background
+                    final_pixmap = QPixmap(120, 120)
+                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    
+                    painter = QPainter(final_pixmap)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    # Center the scaled image
+                    x = (120 - scaled_pixmap.width()) // 2
+                    y = (120 - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                    
+                    painter.end()
+                    self.setPixmap(final_pixmap)
+                    thumbnail_loaded = True
+        
+        # Fallback to placeholder icon if no image found
+        if not thumbnail_loaded:
+            self.show_placeholder_icon()
+    
+    def show_placeholder_icon(self):
+        """Show a clean placeholder icon for missing thumbnails"""
+        pixmap = QPixmap(120, 120)
+        pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Draw simple animation icon
+        painter.setPen(QPen(QColor("#666666"), 2))
+        painter.setBrush(QBrush(QColor("#666666")))
+        
+        # Simple figure representation
+        center_x, center_y = 60, 60
+        
+        # Head
+        painter.drawEllipse(center_x-8, center_y-25, 16, 16)
+        
+        # Body
+        painter.drawLine(center_x, center_y-9, center_x, center_y+15)
+        
+        # Arms
+        painter.drawLine(center_x-12, center_y-5, center_x+12, center_y-5)
+        
+        # Legs
+        painter.drawLine(center_x, center_y+15, center_x-8, center_y+30)
+        painter.drawLine(center_x, center_y+15, center_x+8, center_y+30)
+        
+        painter.end()
+        self.setPixmap(pixmap)
+    
+        painter.end()
+        self.setPixmap(pixmap)
+    
+    def set_selected(self, selected: bool):
+        """Set selection state"""
+        self.is_selected = selected
+        # Selection will be handled by the parent card
+    
+    def refresh_thumbnail(self, animation_name: str):
+        """Refresh thumbnail for the specified animation"""
+        # Check if this thumbnail is for the updated animation
+        animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+        
+        # Match by name or ID
+        if (animation_name == self.animation_metadata.name or 
+            animation_name == animation_id):
+            # Reload the thumbnail image
+            self.load_thumbnail_image()
+            print(f"🖼️ Refreshed thumbnail for: {animation_name}")
+    
 class AnimationCard(QFrame):
     """Professional animation card with Studio Library styling and drag & drop support"""
     
@@ -181,119 +285,60 @@ class AnimationCard(QFrame):
         self.setAcceptDrops(False)  # Cards don't accept drops, only initiate drags
     
     def setup_ui(self):
-        """Setup the card UI layout"""
-        self.setFixedSize(200, 280)
+        """Setup the card UI layout - Studio Library style"""
+        self.setFixedSize(160, 220)  # Compact size for Studio Library style
         self.setFrameStyle(QFrame.NoFrame)
         
         # Main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
         
-        # Thumbnail
+        # Thumbnail at top - 120x120px
         self.thumbnail = AnimationThumbnail(self.animation_metadata)
-        layout.addWidget(self.thumbnail)
+        layout.addWidget(self.thumbnail, 0, Qt.AlignHCenter)
         
-        # Info section
-        info_widget = self.create_info_section()
-        layout.addWidget(info_widget)
-        
-        # Actions section (hidden by default, shown on hover)
-        self.actions_widget = self.create_actions_section()
-        self.actions_widget.setVisible(False)
-        layout.addWidget(self.actions_widget)
-    
-    def create_info_section(self) -> QWidget:
-        """Create the information section"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(2)
-        
-        # Title
+        # Animation name (bold)
         self.title_label = QLabel(self.animation_metadata.name)
         self.title_label.setObjectName("titleLabel")
         self.title_label.setWordWrap(True)
         self.title_label.setMaximumHeight(32)
-        self.title_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.title_label)
         
-        # Metadata row 1: Duration and bones
-        meta1_widget = QWidget()
-        meta1_layout = QHBoxLayout(meta1_widget)
-        meta1_layout.setContentsMargins(0, 0, 0, 0)
-        meta1_layout.setSpacing(8)
+        # Optional metadata (frame count, rig type)
+        metadata_widget = QWidget()
+        metadata_layout = QVBoxLayout(metadata_widget)
+        metadata_layout.setContentsMargins(0, 0, 0, 0)
+        metadata_layout.setSpacing(2)
         
-        duration_label = QLabel(f"{int(self.animation_metadata.duration_frames)}f")
-        duration_label.setObjectName("metaLabel")
-        meta1_layout.addWidget(duration_label)
-        
-        bones_label = QLabel(f"{self.animation_metadata.total_bones_animated} bones")
-        bones_label.setObjectName("metaLabel")
-        meta1_layout.addWidget(bones_label)
-        
-        meta1_layout.addStretch()
-        layout.addWidget(meta1_widget)
-        
-        # Metadata row 2: Performance and rig
-        meta2_widget = QWidget()
-        meta2_layout = QHBoxLayout(meta2_widget)
-        meta2_layout.setContentsMargins(0, 0, 0, 0)
-        meta2_layout.setSpacing(8)
-        
-        # Performance indicator
-        perf_info = self.animation_metadata.get_performance_info()
-        perf_label = QLabel(f"{perf_info['status_emoji']} {perf_info['application_time']}")
-        perf_label.setObjectName("perfLabel")
-        
-        if self.animation_metadata.is_blend_file_storage():
-            perf_label.setStyleSheet("color: #51cf66; font-weight: bold; font-size: 9px;")
-        else:
-            perf_label.setStyleSheet("color: #ffd43b; font-weight: bold; font-size: 9px;")
-        
-        meta2_layout.addWidget(perf_label)
+        # Frame count
+        frame_label = QLabel(f"{int(self.animation_metadata.duration_frames)} frames")
+        frame_label.setObjectName("metaLabel")
+        frame_label.setAlignment(Qt.AlignCenter)
+        metadata_layout.addWidget(frame_label)
         
         # Rig type
-        from core.animation_data import RigTypeDetector
-        rig_emoji = RigTypeDetector.get_rig_emoji(self.animation_metadata.rig_type)
-        rig_color = RigTypeDetector.get_rig_color(self.animation_metadata.rig_type)
-        
-        rig_label = QLabel(f"{rig_emoji} {self.animation_metadata.rig_type}")
+        rig_label = QLabel(self.animation_metadata.rig_type)
         rig_label.setObjectName("rigLabel")
-        rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold; font-size: 9px;")
-        meta2_layout.addWidget(rig_label)
+        rig_label.setAlignment(Qt.AlignCenter)
+        metadata_layout.addWidget(rig_label)
         
-        meta2_layout.addStretch()
-        layout.addWidget(meta2_widget)
+        layout.addWidget(metadata_widget)
         
-        # Tags (first 2)
-        if self.animation_metadata.tags:
-            tags_widget = QWidget()
-            tags_layout = QHBoxLayout(tags_widget)
-            tags_layout.setContentsMargins(0, 0, 0, 0)
-            tags_layout.setSpacing(4)
-            
-            for tag in self.animation_metadata.tags[:2]:
-                tag_label = QLabel(tag)
-                tag_label.setObjectName("tagLabel")
-                tags_layout.addWidget(tag_label)
-            
-            if len(self.animation_metadata.tags) > 2:
-                more_label = QLabel(f"+{len(self.animation_metadata.tags) - 2}")
-                more_label.setObjectName("moreTagsLabel")
-                tags_layout.addWidget(more_label)
-            
-            tags_layout.addStretch()
-            layout.addWidget(tags_widget)
+        # Action buttons at bottom
+        self.actions_widget = self.create_actions_section()
+        layout.addWidget(self.actions_widget)
         
-        return widget
+        # Add stretch to push everything to top
+        layout.addStretch()
     
     def create_actions_section(self) -> QWidget:
-        """Create the actions section"""
+        """Create the clean action buttons section"""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
         
         # Apply button
         self.apply_btn = QPushButton("Apply")
@@ -302,106 +347,73 @@ class AnimationCard(QFrame):
         self.apply_btn.clicked.connect(lambda: self.apply_requested.emit(self.animation_data))
         layout.addWidget(self.apply_btn)
         
-        # Options menu button
-        self.options_btn = QToolButton()
-        self.options_btn.setObjectName("optionsButton")
-        self.options_btn.setText("⋯")
-        self.options_btn.setFixedSize(24, 24)
-        self.options_btn.setToolTip("More options")
+        # Delete button
+        delete_btn = QPushButton("Delete")
+        delete_btn.setObjectName("deleteButton")
+        delete_btn.setFixedHeight(24)
+        delete_btn.clicked.connect(lambda: self.delete_requested.emit(self.animation_data))
+        layout.addWidget(delete_btn)
         
-        # Create options menu
-        options_menu = QMenu(self)
-        
-        preview_action = QAction("Preview", self)
-        preview_action.triggered.connect(lambda: self.preview_requested.emit(self.animation_data))
-        options_menu.addAction(preview_action)
-        
-        edit_action = QAction("Edit Metadata", self)
-        edit_action.triggered.connect(lambda: self.edit_requested.emit(self.animation_data))
-        options_menu.addAction(edit_action)
-        
-        options_menu.addSeparator()
-        
-        delete_action = QAction("Delete", self)
-        delete_action.triggered.connect(lambda: self.delete_requested.emit(self.animation_data))
-        options_menu.addAction(delete_action)
-        
-        self.options_btn.setMenu(options_menu)
-        self.options_btn.setPopupMode(QToolButton.InstantPopup)
-        
-        layout.addWidget(self.options_btn)
+        # Rename button
+        rename_btn = QPushButton("Rename")
+        rename_btn.setObjectName("renameButton")
+        rename_btn.setFixedHeight(24)
+        rename_btn.clicked.connect(lambda: self.edit_requested.emit(self.animation_data))
+        layout.addWidget(rename_btn)
         
         return widget
     
     def setup_animations(self):
-        """Setup hover animations"""
+        """Setup hover animations without shadows"""
         self.hover_animation = QPropertyAnimation(self, b"geometry")
         self.hover_animation.setDuration(150)
         self.hover_animation.setEasingCurve(QEasingCurve.OutCubic)
-        
-        # Add subtle drop shadow
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(8)
-        shadow.setOffset(2, 2)
-        shadow.setColor(QColor(0, 0, 0, 60))
-        self.setGraphicsEffect(shadow)
     
     def setup_style(self):
-        """Setup card styling"""
+        """Setup Studio Library style card styling"""
         self.setStyleSheet("""
             AnimationCard {
-                border: 1px solid #555;
+                border: none;
                 border-radius: 8px;
-                background-color: #4a4a4a;
+                background-color: #2e2e2e;
             }
             
             AnimationCard:hover {
-                border-color: #4a90e2;
-                background-color: #525252;
+                background-color: #262626;
             }
             
             AnimationCard[selected="true"] {
-                border-color: #4a90e2;
-                border-width: 2px;
-                background-color: #525252;
+                border: 1px solid #4a90e2;
+                background-color: #2e2e2e;
             }
             
             #titleLabel {
-                color: #ffffff;
+                color: #eeeeee;
                 font-size: 11px;
                 font-weight: bold;
-                padding: 0px;
+                padding: 2px;
             }
             
             #metaLabel {
                 color: #cccccc;
                 font-size: 9px;
-                padding: 0px;
+                padding: 1px;
             }
             
-            #tagLabel {
-                background-color: #4a90e2;
-                color: white;
-                padding: 1px 6px;
-                border-radius: 8px;
-                font-size: 8px;
-                font-weight: bold;
-            }
-            
-            #moreTagsLabel {
-                color: #888888;
-                font-size: 8px;
-                font-style: italic;
+            #rigLabel {
+                color: #cccccc;
+                font-size: 9px;
+                padding: 1px;
             }
             
             #applyButton {
                 background-color: #4a90e2;
                 color: white;
                 border: none;
-                padding: 4px 12px;
+                padding: 4px 8px;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 10px;
+                font-size: 9px;
             }
             
             #applyButton:hover {
@@ -412,18 +424,32 @@ class AnimationCard(QFrame):
                 background-color: #2968a3;
             }
             
-            #optionsButton {
-                background-color: #666;
-                color: #cccccc;
-                border: 1px solid #777;
+            #deleteButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 4px 8px;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 9px;
             }
             
-            #optionsButton:hover {
+            #deleteButton:hover {
+                background-color: #c0392b;
+            }
+            
+            #renameButton {
+                background-color: #666;
+                color: #cccccc;
+                border: none;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 9px;
+            }
+            
+            #renameButton:hover {
                 background-color: #777;
-                border-color: #4a90e2;
             }
         """)
     
@@ -586,8 +612,16 @@ class AnimationCard(QFrame):
             self.apply_btn.setText("Applying...")
         else:
             self.apply_btn.setText("Apply")
-
-
+    
+    def refresh_thumbnail(self, animation_name: str):
+        """Refresh thumbnail for the specified animation"""
+        # Check if this card is for the updated animation
+        if (animation_name == self.animation_metadata.name or 
+            animation_name == getattr(self.animation_metadata, 'id', self.animation_metadata.name)):
+            # Refresh the thumbnail
+            self.thumbnail.refresh_thumbnail(animation_name)
+            print(f"🎬 Refreshed card thumbnail for: {animation_name}")
+    
 class AnimationCardGrid(QWidget):
     """Grid container for animation cards with responsive layout"""
     
@@ -674,46 +708,213 @@ class AnimationCardGrid(QWidget):
         
         # Emit selection signal
         self.animation_selected.emit(card.animation_data)
-    
     def remove_card(self, animation_card):
-        """Remove animation card from grid"""
+        """Remove animation card from grid with proper cleanup"""
         if animation_card in self.cards:
+            print(f"🗑️ Removing animation card: {animation_card.animation_metadata.name}")
+            
+            # Remove from internal list first
             self.cards.remove(animation_card)
-            animation_card.setParent(None)
+            
+            # Clear selection if this card was selected
+            if self.selected_card == animation_card:
+                self.selected_card = None
+            
+            # Remove from layout
+            self.grid_layout.removeWidget(animation_card)
+            
+            # Schedule for deletion to prevent memory leaks
+            animation_card.deleteLater()
+            
+            # Refresh layout to fill the gap
             self.refresh_layout()
+            
+            print("✅ Animation card removed and layout refreshed")
     
+    def rebuild_grid(self, new_cards_data):
+        """Completely rebuild the grid with new animation data"""
+        print(f"🔧 Rebuilding grid with {len(new_cards_data)} animations")
+        
+        # Step 1: Clear everything with proper cleanup
+        self.clear_cards()
+        
+        # Step 2: Note - cards should be created externally and added via add_card()
+        # This method is for coordination with the main window refresh logic
+        
+        print(f"✅ Grid cleared and ready for {len(new_cards_data)} new cards")
+    
+    def bulk_add_cards(self, cards_list):
+        """Add multiple cards efficiently without refreshing layout each time"""
+        print(f"📦 Bulk adding {len(cards_list)} animation cards...")
+        
+        # Add all cards to internal list first
+        for card in cards_list:
+            # Connect selection signal properly
+            original_mouse_press = card.mousePressEvent
+            
+            def new_mouse_press(event, card_ref=card):
+                original_mouse_press(event)
+                if event.button() == Qt.LeftButton:
+                    self.select_card(card_ref)
+            
+            card.mousePressEvent = new_mouse_press
+            self.cards.append(card)
+        
+        # Refresh layout once at the end
+        self.refresh_layout()
+        
+        print(f"✅ Bulk add completed: {len(self.cards)} total cards in grid")
+    
+    def update_grid_performance_mode(self, large_dataset=False):
+        """Optimize grid for large datasets (200+ animations)"""
+        if large_dataset:
+            print("⚡ Enabling performance mode for large dataset...")
+            # Disable animations and effects for better performance
+            self.setUpdatesEnabled(False)
+            self.grid_widget.setUpdatesEnabled(False)
+        else:
+            print("🎨 Enabling standard mode for normal dataset...")
+            self.setUpdatesEnabled(True)
+            self.grid_widget.setUpdatesEnabled(True)
+            
+        QApplication.processEvents()
+
     def clear_cards(self):
-        """Clear all animation cards"""
-        for card in self.cards:
-            card.setParent(None)
-        self.cards.clear()
-        self.selected_card = None
-    
-    def refresh_layout(self):
-        """Refresh the grid layout"""
-        # Clear layout
+        """Clear all animation cards with proper cleanup"""
+        print(f"🧹 Clearing {len(self.cards)} animation cards from grid")
+        
+        # First, remove all widgets from layout and properly delete them
         for i in reversed(range(self.grid_layout.count())):
             item = self.grid_layout.itemAt(i)
             if item:
-                self.grid_layout.removeItem(item)
+                widget = item.widget()
+                if widget:
+                    # Remove from layout first
+                    self.grid_layout.removeWidget(widget)
+                    # Schedule for deletion to prevent memory leaks
+                    widget.deleteLater()
+                    
+        # Clear the layout completely
+        while self.grid_layout.count():
+            child = self.grid_layout.takeAt(0)
+            if child:
+                widget = child.widget()
+                if widget:
+                    widget.deleteLater()
         
-        # Calculate columns based on widget width
+        # Reset internal tracking
+        self.cards.clear()
+        self.selected_card = None
+        
+        # Process pending deletions
+        QApplication.processEvents()
+        
+        print("✅ Animation cards cleared and memory cleaned up")
+    
+    def safe_delete_animation_card(self, animation_id: str):
+        """Safely delete a specific animation card by ID"""
+        card_to_remove = None
+        for card in self.cards:
+            if card.animation_data.get('id') == animation_id:
+                card_to_remove = card
+                break
+        
+        if card_to_remove:
+            print(f"🗑️ Safely deleting animation card: {animation_id}")
+            self.remove_card(card_to_remove)
+            return True
+        else:
+            print(f"⚠️ Animation card not found for deletion: {animation_id}")
+            return False
+    
+    def get_card_count(self) -> int:
+        """Get the current number of cards in the grid"""
+        return len(self.cards)
+    
+    def force_layout_cleanup(self):
+        """Force cleanup of any orphaned layout items"""
+        print("🧹 Performing force layout cleanup...")
+        
+        # Remove any widgets that might be in layout but not in cards list
+        widgets_in_layout = []
+        for i in range(self.grid_layout.count()):
+            item = self.grid_layout.itemAt(i)
+            if item and item.widget():
+                widgets_in_layout.append(item.widget())
+        
+        cards_widgets = set(self.cards)
+        orphaned_widgets = [w for w in widgets_in_layout if w not in cards_widgets]
+        
+        if orphaned_widgets:
+            print(f"🚨 Found {len(orphaned_widgets)} orphaned widgets in layout")
+            for widget in orphaned_widgets:
+                self.grid_layout.removeWidget(widget)
+                widget.deleteLater()
+            QApplication.processEvents()
+        else:
+            print("✅ No orphaned widgets found")
+    
+    def refresh_layout(self):
+        """Refresh the grid layout with complete rebuild"""
+        print(f"🔄 Refreshing layout with {len(self.cards)} cards")
+        
+        # Step 1: Remove all widgets from layout without deleting them
+        widgets_to_re_add = []
+        
+        # Collect all current widgets before clearing layout
+        for i in reversed(range(self.grid_layout.count())):
+            item = self.grid_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                self.grid_layout.removeWidget(widget)
+                widgets_to_re_add.append(widget)
+        
+        # Clear any remaining layout items
+        while self.grid_layout.count():
+            child = self.grid_layout.takeAt(0)
+            if child and child.widget():
+                child.widget().setParent(None)
+        
+        # Step 2: Calculate grid dimensions
         widget_width = self.scroll_area.viewport().width() - 24  # Account for margins
         card_width = 220 + 12  # Card width + spacing
         columns = max(1, widget_width // card_width)
         
-        # Add cards to grid
+        print(f"📐 Grid layout: {len(self.cards)} cards in {columns} columns")
+        
+        # Step 3: Re-add cards to grid in correct positions
         for i, card in enumerate(self.cards):
             row = i // columns
             col = i % columns
             self.grid_layout.addWidget(card, row, col)
         
-        # Add stretch to last row
+        # Step 4: Add stretch to last row for proper spacing
         if self.cards:
             last_row = (len(self.cards) - 1) // columns + 1
+            # Clear any existing row stretches first
+            for r in range(last_row + 1):
+                self.grid_layout.setRowStretch(r, 0)
+            # Apply stretch to the last row
             self.grid_layout.setRowStretch(last_row, 1)
+        
+        # Force layout update
+        self.grid_layout.update()
+        self.grid_widget.update()
+        
+        print("✅ Layout refreshed successfully")
     
-    def resizeEvent(self, event):
-        """Handle resize event to adjust grid"""
-        super().resizeEvent(event)
-        self.refresh_layout()
+    def refresh_thumbnail(self, animation_name: str):
+        """Refresh thumbnail for the specified animation across all cards"""
+        refreshed_count = 0
+        for card in self.cards:
+            if hasattr(card, 'refresh_thumbnail'):
+                # Check if this card is for the updated animation
+                if (animation_name == card.animation_metadata.name or 
+                    animation_name == getattr(card.animation_metadata, 'id', card.animation_metadata.name)):
+                    card.refresh_thumbnail(animation_name)
+                    refreshed_count += 1
+        
+        if refreshed_count > 0:
+            print(f"🔄 Refreshed {refreshed_count} card(s) for animation: {animation_name}")
+        else:
+            print(f"⚠️ No cards found for animation: {animation_name}")

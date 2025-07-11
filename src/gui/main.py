@@ -111,6 +111,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         toolbar = self.layout_manager.get_widget('toolbar')
         folder_tree = self.layout_manager.get_widget('folder_tree')
         animation_grid = self.layout_manager.get_widget('animation_grid')
+        metadata_panel = self.layout_manager.get_widget('metadata_panel')
         
         # Blender connection signals
         self.blender_connection.connected.connect(self.on_blender_connected)
@@ -123,6 +124,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.blender_connection.animation_extracted.connect(self.on_animation_extracted)
         self.blender_connection.animation_applied.connect(self.on_animation_applied)
         self.blender_connection.error_received.connect(self.on_blender_error)
+        self.blender_connection.thumbnail_updated.connect(self.on_thumbnail_updated)
         
         # UI signals
         toolbar.connect_requested.connect(self.toggle_blender_connection)
@@ -136,6 +138,9 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.folder_created.connect(self.on_folder_created)  # NEW: Handle folder creation
         folder_tree.folder_deleted.connect(self.on_folder_deleted)  # NEW: Handle folder deletion
         animation_grid.animation_selected.connect(self.on_animation_selected)
+        
+        # Metadata panel signals
+        metadata_panel.thumbnail_update_requested.connect(self.on_thumbnail_update_requested)
     
     def get_application_style(self) -> str:
         """Get the application stylesheet"""
@@ -343,14 +348,22 @@ class AnimationLibraryMainWindow(QMainWindow):
             metadata = AnimationMetadata.from_blender_data(animation_data)
             
             # Add to library (default to Root folder)
-            self.library_manager.add_animation(metadata, "Root")
+            success = self.library_manager.add_animation(metadata, "Root")
             
-            # Refresh displays
-            self.refresh_library_display()
-            self.update_tag_filter()
-            self.update_folder_tree()
-            
-            self.status_bar.showMessage(f"Animation '{animation_data['action_name']}' extracted successfully", 3000)
+            if success:
+                # Update folder count immediately
+                folder_tree = self.layout_manager.get_widget('folder_tree')
+                folder_tree.increment_folder_count("Root", 1)
+                
+                # Refresh displays
+                self.refresh_library_display()
+                self.update_tag_filter()
+                
+                self.status_bar.showMessage(f"Animation '{animation_data['action_name']}' extracted successfully", 3000)
+                print(f"✅ Added new animation '{animation_data['action_name']}' to Root folder")
+            else:
+                QMessageBox.warning(self, "Add Animation Failed", f"Failed to add animation '{animation_data['action_name']}'")
+                print(f"❌ Failed to add animation '{animation_data['action_name']}'")
             
         except Exception as e:
             logger.error(f"Error processing extracted animation: {e}")
@@ -409,6 +422,37 @@ class AnimationLibraryMainWindow(QMainWindow):
                 metadata_panel.show_no_selection()
         except Exception as e:
             logger.error(f"Error showing animation details: {e}")
+    
+    def on_thumbnail_update_requested(self, animation_identifier: str):
+        """Handle thumbnail update request from metadata panel"""
+        try:
+            if not self.blender_connection.is_connected():
+                QMessageBox.warning(self, "Not Connected", "Please connect to Blender first to update thumbnails")
+                return
+            
+            # Extract animation name from the identifier (could be ID or name)
+            animation_name = animation_identifier
+            
+            # If it looks like an ID, try to get the actual animation name
+            if self.current_animation and (
+                animation_identifier == getattr(self.current_animation, 'id', '') or
+                animation_identifier == self.current_animation.name
+            ):
+                animation_name = self.current_animation.name
+            
+            # Send the update request to Blender
+            success = self.blender_connection.send_update_thumbnail(animation_name)
+            
+            if success:
+                self.status_bar.showMessage(f"Thumbnail update requested for: {animation_name}", 3000)
+                logger.info(f"Thumbnail update requested for: {animation_name}")
+            else:
+                QMessageBox.warning(self, "Update Failed", f"Failed to send thumbnail update request for: {animation_name}")
+                logger.error(f"Failed to send thumbnail update request for: {animation_name}")
+                
+        except Exception as e:
+            logger.error(f"Error requesting thumbnail update: {e}")
+            QMessageBox.critical(self, "Error", f"Error requesting thumbnail update: {str(e)}")
     
     def on_search_changed(self, search_text: str):
         """Handle search text change"""
@@ -494,9 +538,24 @@ class AnimationLibraryMainWindow(QMainWindow):
             
             # Get animation to see current folder
             animation = self.library_manager.get_animation(animation_id)
+            source_folder = "Root"  # Default
             if animation:
-                current_folder = getattr(animation, 'folder_path', 'Root')
-                print(f"🎬 Current folder: '{current_folder}' → Target folder: '{target_folder}'")
+                source_folder = getattr(animation, 'folder_path', 'Root')
+                print(f"🎬 Current folder: '{source_folder}' → Target folder: '{target_folder}'")
+            
+            # Update folder counts immediately (optimistic UI update)
+            folder_tree = self.layout_manager.get_widget('folder_tree')
+            if source_folder != target_folder:
+                # Decrement source folder count
+                if source_folder != "Root":
+                    folder_tree.increment_folder_count(source_folder, -1)
+                # Increment target folder count
+                folder_tree.increment_folder_count(target_folder, 1)
+                # Update root count based on whether we're moving to/from root
+                if source_folder == "Root" and target_folder != "Root":
+                    folder_tree.increment_folder_count("Root", -1)
+                elif source_folder != "Root" and target_folder == "Root":
+                    folder_tree.increment_folder_count("Root", 1)
             
             # Move animation in library
             success = self.library_manager.move_animation_to_folder(animation_id, target_folder)
@@ -509,15 +568,29 @@ class AnimationLibraryMainWindow(QMainWindow):
                 
                 print(f"🎬 AFTER MOVE - Animation {animation_name} now in folder: '{new_folder}'")
                 
-                # Refresh displays
+                # Refresh displays (but folder counts should already be updated)
                 self.refresh_library_display()
-                self.update_folder_tree()
+                
+                # Do a final count verification and update if needed
+                self.update_folder_tree_counts_only()
                 
                 # Show success message
                 self.status_bar.showMessage(f"Moved '{animation_name}' to folder '{target_folder}'", 3000)
                 print(f"📁 SUCCESS: Moved {animation_name} to {target_folder}")
             else:
                 print(f"❌ FAILED: Could not move animation to folder '{target_folder}'")
+                # Revert the optimistic UI updates
+                if source_folder != target_folder:
+                    # Revert source folder count
+                    if source_folder != "Root":
+                        folder_tree.increment_folder_count(source_folder, 1)
+                    # Revert target folder count  
+                    folder_tree.increment_folder_count(target_folder, -1)
+                    # Revert root count
+                    if source_folder == "Root" and target_folder != "Root":
+                        folder_tree.increment_folder_count("Root", 1)
+                    elif source_folder != "Root" and target_folder == "Root":
+                        folder_tree.increment_folder_count("Root", -1)
                 QMessageBox.warning(self, "Move Failed", f"Failed to move animation to folder '{target_folder}'")
                 
         except Exception as e:
@@ -605,7 +678,7 @@ class AnimationLibraryMainWindow(QMainWindow):
             self.on_animation_moved(animation_id, target_folder)
     
     def delete_animation(self, animation_data: dict):
-        """Delete animation from library"""
+        """Delete animation from library with proper UI cleanup"""
         reply = QMessageBox.question(
             self, "Delete Animation",
             f"Are you sure you want to delete '{animation_data['name']}'?",
@@ -615,29 +688,51 @@ class AnimationLibraryMainWindow(QMainWindow):
         
         if reply == QMessageBox.Yes:
             animation_id = animation_data['id']
-            self.library_manager.remove_animation(animation_id)
-            self.refresh_library_display()
-            self.update_tag_filter()
-            self.update_folder_tree()
+            animation_grid = self.layout_manager.get_widget('animation_grid')
             
-            metadata_panel = self.layout_manager.get_widget('metadata_panel')
-            metadata_panel.show_no_selection()
+            print(f"🗑️ Starting deletion of animation: {animation_data['name']} (ID: {animation_id})")
             
-            self.status_bar.showMessage(f"Deleted animation '{animation_data['name']}'", 3000)
-        """Delete animation from library"""
-        reply = QMessageBox.question(
-            self, "Delete Animation",
-            f"Are you sure you want to delete '{animation_data['name']}'?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            animation_id = animation_data['id']
-            self.library_manager.remove_animation(animation_id)
-            self.refresh_library_display()
-            self.update_tag_filter()
-            self.update_folder_tree()
+            # Get the animation's current folder for count update
+            animation = self.library_manager.get_animation(animation_id)
+            source_folder = "Root"
+            if animation:
+                source_folder = getattr(animation, 'folder_path', 'Root')
+            
+            # Step 1: Remove the card from UI immediately for better UX
+            card_removed = animation_grid.safe_delete_animation_card(animation_id)
+            if card_removed:
+                print(f"✅ Animation card removed from UI")
+            
+            # Step 2: Remove animation from library backend
+            success = self.library_manager.remove_animation(animation_id)
+            
+            if success:
+                # Update folder count immediately
+                folder_tree = self.layout_manager.get_widget('folder_tree')
+                folder_tree.increment_folder_count(source_folder, -1)
+                
+                # Update other UI components without full refresh if card was already removed
+                if not card_removed:
+                    # If individual card removal failed, do full refresh
+                    print("⚠️ Card removal failed, doing full refresh")
+                    self.refresh_library_display()
+                else:
+                    # Just update counts and filters since card is already gone
+                    self.update_statistics()
+                    self.update_tag_filter()
+                
+                # Clear metadata panel
+                metadata_panel = self.layout_manager.get_widget('metadata_panel')
+                metadata_panel.show_no_selection()
+                
+                # Force cleanup of any remaining orphaned widgets
+                animation_grid.force_layout_cleanup()
+                
+                self.status_bar.showMessage(f"Deleted animation '{animation_data['name']}'", 3000)
+                print(f"✅ Successfully deleted animation '{animation_data['name']}' from folder '{source_folder}'")
+            else:
+                QMessageBox.warning(self, "Delete Failed", f"Failed to delete animation '{animation_data['name']}'")
+                print(f"❌ Failed to delete animation '{animation_data['name']}''")
             
             metadata_panel = self.layout_manager.get_widget('metadata_panel')
             metadata_panel.show_no_selection()
@@ -677,25 +772,76 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.update_folder_counts(folder_stats)
     
     def refresh_library_display(self):
-        """Refresh the animation library display"""
+        """Refresh the animation library display with proper cleanup"""
+        print("🔄 Starting library display refresh...")
+        
         animations = self.get_filtered_animations()
         animation_grid = self.layout_manager.get_widget('animation_grid')
         
+        # Check if we have a large dataset and enable performance mode
+        is_large_dataset = len(animations) > 200
+        if is_large_dataset:
+            print(f"📊 Large dataset detected ({len(animations)} animations) - enabling performance mode")
+            animation_grid.update_grid_performance_mode(large_dataset=True)
+        
+        # Step 1: Clear all existing cards with proper memory cleanup
+        print(f"🧹 Clearing existing cards before adding {len(animations)} new ones")
         animation_grid.clear_cards()
         
-        for animation_data in animations:
-            card = AnimationCard(animation_data.to_dict())
-            
-            # Connect signals
-            card.apply_requested.connect(self.apply_animation)
-            card.preview_requested.connect(self.preview_animation)
-            card.edit_requested.connect(self.edit_animation)
-            card.delete_requested.connect(self.delete_animation)
-            card.move_to_folder_requested.connect(self.move_animation_to_folder)  # NEW: Connect folder move
-            
-            animation_grid.add_card(card)
+        # Step 2: Force Qt to process pending deletions
+        QApplication.processEvents()
         
+        # Step 3: Create new animation cards (but don't add them one by one)
+        new_cards = []
+        cards_created = 0
+        
+        for animation_data in animations:
+            try:
+                card = AnimationCard(animation_data.to_dict())
+                
+                # Connect signals
+                card.apply_requested.connect(self.apply_animation)
+                card.preview_requested.connect(self.preview_animation)
+                card.edit_requested.connect(self.edit_animation)
+                card.delete_requested.connect(self.delete_animation)
+                card.move_to_folder_requested.connect(self.move_animation_to_folder)
+                
+                new_cards.append(card)
+                cards_created += 1
+                
+            except Exception as e:
+                print(f"⚠️ Failed to create card for animation {animation_data.name}: {e}")
+                continue
+        
+        # Step 4: Add all cards at once for better performance
+        if new_cards:
+            if is_large_dataset:
+                # Use bulk add for large datasets
+                animation_grid.bulk_add_cards(new_cards)
+            else:
+                # Use regular add for smaller datasets
+                for card in new_cards:
+                    animation_grid.add_card(card)
+        
+        # Step 5: Re-enable updates if we disabled them
+        if is_large_dataset:
+            animation_grid.update_grid_performance_mode(large_dataset=False)
+        
+        # Step 6: Update other UI components
         self.update_statistics()
+        self.update_folder_tree()
+        
+        print(f"✅ Library display refreshed: {cards_created}/{len(animations)} cards created successfully")
+        
+        # Step 7: Final cleanup and validation
+        if cards_created != len(animations):
+            print(f"⚠️ Warning: Created {cards_created} cards but expected {len(animations)}")
+            
+        # Force cleanup of any orphaned widgets
+        animation_grid.force_layout_cleanup()
+        
+        # Final memory cleanup
+        QApplication.processEvents()
         self.update_folder_tree()
         print(f"🔄 Refreshed display: {len(animations)} animations shown")
     
@@ -829,6 +975,38 @@ class AnimationLibraryMainWindow(QMainWindow):
             logger.error(f"Failed to save library on exit: {e}")
         
         event.accept()
+    
+    def update_folder_tree_counts_only(self):
+        """Update only the folder counts without rebuilding the tree structure"""
+        folder_tree = self.layout_manager.get_widget('folder_tree')
+        
+        # Get folder statistics from library manager
+        folder_stats = self.library_manager.get_folder_statistics()
+        
+        # Use the efficient count update method
+        folder_tree.update_folder_counts_efficient(folder_stats)
+        print(f"📊 Updated folder counts: {folder_stats}")
+    
+    def on_thumbnail_updated(self, animation_name: str):
+        """Handle thumbnail updated confirmation from Blender"""
+        try:
+            logger.info(f"Thumbnail updated for: {animation_name}")
+            
+            # Refresh all animation cards that match this animation
+            animation_grid = self.layout_manager.get_component('animation_grid')
+            if animation_grid and hasattr(animation_grid, 'refresh_thumbnail'):
+                animation_grid.refresh_thumbnail(animation_name)
+            
+            # Refresh the metadata panel if it's showing this animation
+            metadata_panel = self.layout_manager.get_component('metadata_panel')
+            if metadata_panel and hasattr(metadata_panel, 'refresh_thumbnail'):
+                metadata_panel.refresh_thumbnail(animation_name)
+            
+            # Show confirmation in status bar
+            self.status_bar.showMessage(f"✅ Thumbnail updated for: {animation_name}", 5000)
+            
+        except Exception as e:
+            logger.error(f"Error handling thumbnail update: {e}")
 
 
 def main():

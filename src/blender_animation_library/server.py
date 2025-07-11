@@ -159,13 +159,17 @@ class AnimationLibraryServer:
                 self.send_scene_info()
                 
             elif command == 'extract_animation':
-                self.extract_current_animation()
+                # Use the new method with thumbnail capture by default
+                self.extract_current_animation_with_thumbnail()
                 
             elif command == 'apply_animation':
                 self.apply_animation_from_library(data)
                 
             elif command == 'get_performance_info':
                 self.send_performance_info()
+                
+            elif command == 'update_thumbnail':
+                self.update_animation_thumbnail(data)
                 
         except Exception as e:
             print(f"❌ Command processing error: {e}")
@@ -221,6 +225,110 @@ class AnimationLibraryServer:
                 'type': 'error',
                 'message': f'Professional extraction failed: {str(e)}',
                 'error_type': 'extraction_failed'
+            })
+    
+    def extract_current_animation_with_thumbnail(self):
+        """Extract animation using professional .blend file storage with thumbnail capture"""
+        try:
+            if not (bpy.context.active_object and 
+                    bpy.context.active_object.type == 'ARMATURE' and
+                    bpy.context.active_object.animation_data and
+                    bpy.context.active_object.animation_data.action):
+                self.send_message({
+                    'type': 'error',
+                    'message': 'No active armature with animation found',
+                    'error_type': 'no_animation'
+                })
+                return
+            
+            armature = bpy.context.active_object
+            action = armature.animation_data.action
+            
+            print(f"🎬 Professional extraction with thumbnail: {action.name} from {armature.name}")
+            
+            # Use professional .blend file extraction
+            start_time = time.time()
+            metadata = self.blend_storage.extract_animation_to_blend_with_thumbnail(
+                armature.name,
+                action.name
+            )
+            extraction_time = time.time() - start_time
+            
+            # Add performance data
+            metadata.update({
+                'extraction_time_seconds': extraction_time,
+                'performance_level': 'professional',
+                'storage_optimization': '90% smaller than JSON'
+            })
+            
+            # Send to GUI
+            self.send_message(metadata)
+            
+            print(f"✅ Professional extraction with thumbnail complete: {extraction_time:.1f}s")
+            print("⚡ Ready for instant application (0.5s)")
+            
+        except Exception as e:
+            print(f"❌ Professional extraction with thumbnail failed: {e}")
+            self.send_message({
+                'type': 'error',
+                'message': f'Professional extraction with thumbnail failed: {str(e)}',
+                'error_type': 'extraction_failed'
+            })
+    
+    def update_animation_thumbnail(self, data):
+        """Update thumbnail for an existing animation"""
+        try:
+            animation_name = data.get('animation_name')
+            animation_id = data.get('animation_id')
+            
+            if not animation_name and not animation_id:
+                self.send_message({
+                    'type': 'error',
+                    'message': 'No animation name or ID provided for thumbnail update',
+                    'error_type': 'missing_animation_identifier'
+                })
+                return
+            
+            # Use animation_name if provided, otherwise use animation_id
+            target_identifier = animation_name if animation_name else animation_id
+            print(f"🔄 Updating thumbnail for animation: {target_identifier}")
+            
+            # Call the update thumbnail operator
+            try:
+                if animation_name:
+                    result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_name)
+                else:
+                    result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_id)
+                
+                if result == {'FINISHED'}:
+                    # Send confirmation message in the format expected by the communication system
+                    self.send_message({
+                        'type': 'thumbnail_updated',
+                        'status': 'thumbnail_updated', 
+                        'animation_name': animation_name if animation_name else animation_id
+                    })
+                    print(f"✅ Thumbnail updated successfully for: {target_identifier}")
+                else:
+                    self.send_message({
+                        'type': 'error',
+                        'message': f'Failed to update thumbnail for animation {target_identifier}',
+                        'error_type': 'thumbnail_update_failed'
+                    })
+                    print(f"❌ Thumbnail update failed for: {target_identifier}")
+            except Exception as op_error:
+                print(f"⚠️ Operator call failed: {op_error}")
+                self.send_message({
+                    'type': 'error',
+                    'message': f'Thumbnail update operator failed: {str(op_error)}',
+                    'error_type': 'operator_failed'
+                })
+                
+        except Exception as e:
+            print(f"❌ Thumbnail update error: {e}")
+            self.send_message({
+                'type': 'error',
+                'message': f'Thumbnail update error: {str(e)}',
+                'error_type': 'thumbnail_update_error'
             })
     
     def apply_animation_from_library(self, data):

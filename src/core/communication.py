@@ -501,6 +501,10 @@ class BlenderConnection(SocketCommunicator):
     def get_performance_info(self) -> bool:
         """Request performance information from Blender"""
         return self.send_message(Message.command("get_performance_info"))
+    
+    def update_thumbnail(self, animation_id: str) -> bool:
+        """Request thumbnail update for a specific animation"""
+        return self.send_message(Message.command("update_thumbnail", animation_id=animation_id))
 
 
 class BlenderServer(SocketCommunicator):

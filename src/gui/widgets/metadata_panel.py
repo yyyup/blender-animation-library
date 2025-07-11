@@ -13,16 +13,19 @@ if str(gui_dir) not in sys.path:
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, 
-    QScrollArea, QTextEdit, QGridLayout
+    QScrollArea, QTextEdit, QGridLayout, QPushButton
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QBrush
 
 from core.animation_data import AnimationMetadata
 
 
 class MetadataPanel(QWidget):
     """Professional metadata panel matching Studio Library style"""
+    
+    # Signal for requesting thumbnail updates
+    thumbnail_update_requested = Signal(str)  # animation_name
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -104,9 +107,59 @@ class MetadataPanel(QWidget):
         self.content_layout.addStretch()
     
     def show_animation_details(self, animation: AnimationMetadata):
-        """Show detailed metadata for selected animation"""
+        """Show detailed metadata for selected animation with large preview"""
         self.current_animation = animation
         self.clear_content()
+        
+        # Large preview image at the top
+        preview_group = self.create_info_group("Preview")
+        preview_layout = QVBoxLayout(preview_group)
+        
+        # Create large thumbnail preview (300x300)
+        preview_label = QLabel()
+        preview_label.setObjectName("large_preview")
+        preview_label.setFixedSize(300, 300)
+        preview_label.setAlignment(Qt.AlignCenter)
+        preview_label.setStyleSheet("""
+            QLabel {
+                border: none;
+                border-radius: 8px;
+                background-color: #2e2e2e;
+            }
+        """)
+        
+        # Load large preview image
+        self.load_large_preview(preview_label, animation)
+        
+        preview_layout.addWidget(preview_label, 0, Qt.AlignHCenter)
+        
+        # Add update thumbnail button
+        update_btn = QPushButton("Update Thumbnail")
+        update_btn.setObjectName("updateThumbnailButton")
+        update_btn.setFixedHeight(28)
+        update_btn.clicked.connect(lambda: self.request_thumbnail_update(animation))
+        update_btn.setStyleSheet("""
+            #updateThumbnailButton {
+                background-color: #4a90e2;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 10px;
+            }
+            
+            #updateThumbnailButton:hover {
+                background-color: #357abd;
+            }
+            
+            #updateThumbnailButton:pressed {
+                background-color: #2968a3;
+            }
+        """)
+        preview_layout.addWidget(update_btn, 0, Qt.AlignHCenter)
+        
+        self.content_layout.addWidget(preview_group)
         
         # Animation name and description
         name_group = self.create_info_group("Basic Information")
@@ -254,6 +307,124 @@ class MetadataPanel(QWidget):
         
         self.content_layout.addWidget(creation_group)
         self.content_layout.addStretch()
+    
+    def load_large_preview(self, preview_label: QLabel, animation: AnimationMetadata):
+        """Load large preview image for the animation (300x300)"""
+        thumbnail_loaded = False
+        
+        # Check if animation has thumbnail path in metadata
+        if hasattr(animation, 'thumbnail') and animation.thumbnail:
+            thumbnail_path = Path("animation_library") / animation.thumbnail
+            if thumbnail_path.exists():
+                # Load the actual thumbnail image
+                pixmap = QPixmap(str(thumbnail_path))
+                if not pixmap.isNull():
+                    # Scale to fit 300x300 while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    # Create a centered pixmap with dark background
+                    final_pixmap = QPixmap(300, 300)
+                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    
+                    painter = QPainter(final_pixmap)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    # Center the scaled image
+                    x = (300 - scaled_pixmap.width()) // 2
+                    y = (300 - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                    
+                    painter.end()
+                    preview_label.setPixmap(final_pixmap)
+                    thumbnail_loaded = True
+        
+        # Fallback to animation name-based thumbnail path
+        if not thumbnail_loaded:
+            # Try to construct thumbnail path from animation name
+            animation_id = getattr(animation, 'id', animation.name)
+            thumbnail_filename = f"{animation_id}.png"
+            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            
+            if thumbnail_path.exists():
+                pixmap = QPixmap(str(thumbnail_path))
+                if not pixmap.isNull():
+                    # Scale to fit 300x300 while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    # Create a centered pixmap with dark background
+                    final_pixmap = QPixmap(300, 300)
+                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    
+                    painter = QPainter(final_pixmap)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    # Center the scaled image
+                    x = (300 - scaled_pixmap.width()) // 2
+                    y = (300 - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                    
+                    painter.end()
+                    preview_label.setPixmap(final_pixmap)
+                    thumbnail_loaded = True
+        
+        # Fallback to placeholder icon if no image found
+        if not thumbnail_loaded:
+            self.show_large_placeholder_icon(preview_label)
+    
+    def show_large_placeholder_icon(self, preview_label: QLabel):
+        """Show a large placeholder icon for missing thumbnails (300x300)"""
+        pixmap = QPixmap(300, 300)
+        pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Draw large animation icon
+        painter.setPen(QPen(QColor("#666666"), 3))
+        painter.setBrush(QBrush(QColor("#666666")))
+        
+        # Simple figure representation (scaled up for 300x300)
+        center_x, center_y = 150, 150
+        
+        # Head
+        painter.drawEllipse(center_x-20, center_y-60, 40, 40)
+        
+        # Body
+        painter.drawLine(center_x, center_y-20, center_x, center_y+40)
+        
+        # Arms
+        painter.drawLine(center_x-30, center_y-10, center_x+30, center_y-10)
+        
+        # Legs
+        painter.drawLine(center_x, center_y+40, center_x-20, center_y+80)
+        painter.drawLine(center_x, center_y+40, center_x+20, center_y+80)
+        
+        # Add text
+        painter.setPen(QColor("#888888"))
+        painter.setFont(QFont("Arial", 14))
+        painter.drawText(center_x-50, center_y+120, "No Preview")
+        
+        painter.end()
+        preview_label.setPixmap(pixmap)
+    
+    def request_thumbnail_update(self, animation: AnimationMetadata):
+        """Request thumbnail update for the current animation"""
+        # Use animation name as specified in the requirements
+        animation_name = animation.name
+        self.thumbnail_update_requested.emit(animation_name)
+    
+    def refresh_thumbnail(self, animation_name: str):
+        """Refresh the large preview image for the specified animation"""
+        if (self.current_animation and 
+            animation_name == self.current_animation.name):
+            # Find the preview label in the current layout
+            preview_label = self.findChild(QLabel, "large_preview")
+            if preview_label:
+                # Reload the large preview image
+                self.load_large_preview(preview_label, self.current_animation)
+                print(f"🖼️ Refreshed large preview for: {animation_name}")
+            else:
+                print(f"⚠️ Preview label not found for: {animation_name}")
     
     def create_info_group(self, title: str) -> QGroupBox:
         """Create a styled info group"""
