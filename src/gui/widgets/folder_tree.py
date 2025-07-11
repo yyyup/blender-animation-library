@@ -312,7 +312,10 @@ class FolderTreeWidget(QWidget):
             first_item.setSelected(True)
             self.current_selection = "all"
     
-    def create_tree_item(self, name: str, data: Dict[str, Any], parent: Optional[QTreeWidgetItem] = None) -> QTreeWidgetItem:
+    def create_tree_item(
+        self, name: str, data: Dict[str, Any], 
+        parent: Optional[QTreeWidgetItem] = None
+    ) -> QTreeWidgetItem:
         """Create a tree widget item with CSS-based styling"""
         if parent:
             item = QTreeWidgetItem(parent)

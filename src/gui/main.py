@@ -6,6 +6,7 @@ Clean, modular Studio Library interface with folder structure
 
 import sys
 import logging
+import time
 from pathlib import Path
 
 # Add core modules to path
@@ -333,8 +334,14 @@ class AnimationLibraryMainWindow(QMainWindow):
                 bone_text = f"{', '.join(bones[:3])} +{len(bones)-3} more"
             bones_label.setText(f"Bones: {bone_text}")
             
-            selected_bones_info.setText(f"Selected: {len(bones)} bones ({', '.join(bones[:2])}{'...' if len(bones) > 2 else ''})")
-            selected_bones_info.setStyleSheet("font-size: 9px; color: #51cf66; padding: 2px 8px;")
+            bone_preview = ', '.join(bones[:2])
+            bone_suffix = '...' if len(bones) > 2 else ''
+            selected_bones_info.setText(
+                f"Selected: {len(bones)} bones ({bone_preview}{bone_suffix})"
+            )
+            selected_bones_info.setStyleSheet(
+                "font-size: 9px; color: #51cf66; padding: 2px 8px;"
+            )
         else:
             bones_label.setText("No bones selected")
             selected_bones_info.setText("No bones selected")
@@ -362,7 +369,10 @@ class AnimationLibraryMainWindow(QMainWindow):
                 self.status_bar.showMessage(f"Animation '{animation_data['action_name']}' extracted successfully", 3000)
                 print(f"✅ Added new animation '{animation_data['action_name']}' to Root folder")
             else:
-                QMessageBox.warning(self, "Add Animation Failed", f"Failed to add animation '{animation_data['action_name']}'")
+                QMessageBox.warning(
+                    self, "Add Animation Failed",
+                    f"Failed to add animation '{animation_data['action_name']}'"
+                )
                 print(f"❌ Failed to add animation '{animation_data['action_name']}'")
             
         except Exception as e:
@@ -426,8 +436,15 @@ class AnimationLibraryMainWindow(QMainWindow):
     def on_thumbnail_update_requested(self, animation_identifier: str):
         """Handle thumbnail update request from metadata panel"""
         try:
+            print(f"📨 DEBUG: Received thumbnail update request for: '{animation_identifier}'")
+            print(f"🔗 DEBUG: Connection status: {self.blender_connection.is_connected()}")
+            
             if not self.blender_connection.is_connected():
-                QMessageBox.warning(self, "Not Connected", "Please connect to Blender first to update thumbnails")
+                print("❌ DEBUG: Not connected to Blender")
+                QMessageBox.warning(
+                    self, "Not Connected", 
+                    "Please connect to Blender first to update thumbnails"
+                )
                 return
             
             # Extract animation name from the identifier (could be ID or name)
@@ -442,16 +459,20 @@ class AnimationLibraryMainWindow(QMainWindow):
             
             # Send the update request to Blender
             success = self.blender_connection.send_update_thumbnail(animation_name)
+            print(f"📤 DEBUG: Send result: {success}")
             
             if success:
-                self.status_bar.showMessage(f"Thumbnail update requested for: {animation_name}", 3000)
-                logger.info(f"Thumbnail update requested for: {animation_name}")
+                message = f"Thumbnail update requested for: {animation_name}"
+                self.status_bar.showMessage(message, 3000)
+                logger.info(message)
             else:
-                QMessageBox.warning(self, "Update Failed", f"Failed to send thumbnail update request for: {animation_name}")
-                logger.error(f"Failed to send thumbnail update request for: {animation_name}")
+                error_msg = f"Failed to send thumbnail update request for: {animation_name}"
+                QMessageBox.warning(self, "Update Failed", error_msg)
+                logger.error(error_msg)
                 
         except Exception as e:
-            logger.error(f"Error requesting thumbnail update: {e}")
+            error_msg = f"Error requesting thumbnail update: {e}"
+            logger.error(error_msg)
             QMessageBox.critical(self, "Error", f"Error requesting thumbnail update: {str(e)}")
     
     def on_search_changed(self, search_text: str):
@@ -876,7 +897,9 @@ class AnimationLibraryMainWindow(QMainWindow):
                 filtered_animations = []
                 for anim in all_animations:
                     anim_folder = getattr(anim, 'folder_path', 'Root')
-                    print(f"   - Checking {anim.name}: '{anim_folder}' == '{folder_name}' ? {anim_folder == folder_name}")
+                    folder_path = getattr(anim, 'folder_path', 'Root')
+                    matches_folder = anim_folder == folder_name
+                    print(f"   - Checking {anim.name}: '{anim_folder}' == '{folder_name}' ? {matches_folder}")
                     if anim_folder == folder_name:
                         filtered_animations.append(anim)
                 
@@ -988,23 +1011,17 @@ class AnimationLibraryMainWindow(QMainWindow):
         print(f"📊 Updated folder counts: {folder_stats}")
     
     def on_thumbnail_updated(self, animation_name: str):
-        """Handle thumbnail updated confirmation from Blender"""
+        """Handle thumbnail updated confirmation from Blender with debounce"""
+        # Simple debounce - ignore if same animation was just updated
+        if hasattr(self, '_last_thumbnail_update'):
+            if (self._last_thumbnail_update[0] == animation_name and 
+                time.time() - self._last_thumbnail_update[1] < 1.0):  # 1 second debounce
+                return
+        
+        self._last_thumbnail_update = (animation_name, time.time())
+        
         try:
             logger.info(f"Thumbnail updated for: {animation_name}")
-            
-            # Refresh all animation cards that match this animation
-            animation_grid = self.layout_manager.get_widget('animation_grid')
-            if animation_grid and hasattr(animation_grid, 'refresh_thumbnail'):
-                animation_grid.refresh_thumbnail(animation_name)
-            
-            # Refresh the metadata panel if it's showing this animation
-            metadata_panel = self.layout_manager.get_widget('metadata_panel')
-            if metadata_panel and hasattr(metadata_panel, 'refresh_thumbnail'):
-                metadata_panel.refresh_thumbnail(animation_name)
-            
-            # Show confirmation in status bar
-            self.status_bar.showMessage(f"✅ Thumbnail updated for: {animation_name}", 5000)
-            
         except Exception as e:
             logger.error(f"Error handling thumbnail update: {e}")
 

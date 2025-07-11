@@ -268,7 +268,10 @@ class AnimationLibraryManager:
             self.save_library()
             
             storage_info = "(.blend file)" if animation.is_blend_file_storage() else "(JSON)"
-            logger.info(f"✅ Added animation: {animation.name} ({animation.id}) to folder '{folder_path}' {storage_info}")
+            logger.info(
+                f"✅ Added animation: {animation.name} ({animation.id}) "
+                f"to folder '{folder_path}' {storage_info}"
+            )
             return True
             
         except Exception as e:
@@ -481,11 +484,25 @@ class AnimationLibraryManager:
             creation_dates.append(anim.created_date)
         
         # Performance statistics
-        blend_avg_extraction = sum(anim.extraction_time_seconds for anim in blend_animations) / len(blend_animations) if blend_animations else 0
-        blend_avg_application = sum(anim.application_time_seconds for anim in blend_animations) / len(blend_animations) if blend_animations else 0
+        if blend_animations:
+            blend_extraction_times = [anim.extraction_time_seconds for anim in blend_animations]
+            blend_avg_extraction = sum(blend_extraction_times) / len(blend_animations)
+            
+            blend_application_times = [anim.application_time_seconds for anim in blend_animations]
+            blend_avg_application = sum(blend_application_times) / len(blend_animations)
+        else:
+            blend_avg_extraction = 0
+            blend_avg_application = 0
         
-        legacy_avg_extraction = sum(anim.extraction_time_seconds for anim in legacy_animations) / len(legacy_animations) if legacy_animations else 0
-        legacy_avg_application = sum(anim.application_time_seconds for anim in legacy_animations) / len(legacy_animations) if legacy_animations else 0
+        if legacy_animations:
+            legacy_extraction_times = [anim.extraction_time_seconds for anim in legacy_animations]
+            legacy_avg_extraction = sum(legacy_extraction_times) / len(legacy_animations)
+            
+            legacy_application_times = [anim.application_time_seconds for anim in legacy_animations]
+            legacy_avg_application = sum(legacy_application_times) / len(legacy_animations)
+        else:
+            legacy_avg_extraction = 0
+            legacy_avg_application = 0
         
         # Calculate total storage size
         total_blend_size = sum(anim.blend_reference.get_size_mb() for anim in blend_animations if anim.blend_reference)
@@ -672,7 +689,11 @@ class AnimationLibraryManager:
                 validation_results["missing"].append(animation.name)
         
         # Check for orphaned .blend files
-        referenced_files = {anim.blend_reference.blend_file for anim in self.get_blend_file_animations() if anim.blend_reference}
+        blend_animations = self.get_blend_file_animations()
+        referenced_files = {
+            anim.blend_reference.blend_file for anim in blend_animations 
+            if anim.blend_reference
+        }
         actual_files = {f.name for f in self.actions_folder.glob("*.blend")}
         orphaned_files = actual_files - referenced_files
         validation_results["orphaned"] = list(orphaned_files)

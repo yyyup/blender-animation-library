@@ -205,7 +205,8 @@ class MetadataPanel(QWidget):
         # Storage method with visual indicator
         storage_text = f"{perf_info['status_emoji']} {animation.storage_method.replace('_', ' ').title()}"
         storage_label = QLabel(f"Storage: {storage_text}")
-        storage_label.setStyleSheet(f"font-weight: bold; color: {'#51cf66' if animation.is_blend_file_storage() else '#ffd43b'};")
+        color = '#51cf66' if animation.is_blend_file_storage() else '#ffd43b'
+        storage_label.setStyleSheet(f"font-weight: bold; color: {color};")
         perf_layout.addWidget(storage_label)
         
         perf_details = [
@@ -408,28 +409,121 @@ class MetadataPanel(QWidget):
         preview_label.setPixmap(pixmap)
     
     def on_update_thumbnail_clicked(self):
+        
         """Handle update thumbnail button click"""
         if self.current_animation:
             self.request_thumbnail_update(self.current_animation)
+            print(f"🖱️ DEBUG: Update thumbnail button clicked")
+            if self.current_animation:
+                print(f"🎬 DEBUG: Current animation: {self.current_animation.name}")
+                print(f"🎬 DEBUG: Animation ID: {getattr(self.current_animation, 'id', 'NO_ID')}")
+                self.request_thumbnail_update(self.current_animation)
+            else:
+                print("❌ DEBUG: No current animation selected")
     
     def request_thumbnail_update(self, animation: AnimationMetadata):
         """Request thumbnail update for the current animation"""
         # Use animation name as specified in the requirements
         animation_name = animation.name
+        print(f"📤 DEBUG: Emitting thumbnail_update_requested for: '{animation_name}'")
+
         self.thumbnail_update_requested.emit(animation_name)
     
     def refresh_thumbnail(self, animation_name: str):
-        """Refresh the large preview image for the specified animation"""
+        """Refresh the large preview image for the specified animation with cache clearing"""
         if (self.current_animation and 
             animation_name == self.current_animation.name):
+            
+            print(f"🔄 METADATA: Refreshing large preview for: {animation_name}")
+            
+            # Clear Qt's pixmap cache
+            from PySide6.QtGui import QPixmapCache
+            QPixmapCache.clear()
+            
             # Find the preview label in the current layout
             preview_label = self.findChild(QLabel, "large_preview")
             if preview_label:
-                # Reload the large preview image
-                self.load_large_preview(preview_label, self.current_animation)
-                print(f"🖼️ Refreshed large preview for: {animation_name}")
+                # Force reload the large preview image
+                self.load_large_preview_force_refresh(preview_label, self.current_animation)
+                print(f"🖼️ METADATA: Refreshed large preview for: {animation_name}")
             else:
-                print(f"⚠️ Preview label not found for: {animation_name}")
+                print(f"⚠️ METADATA: Preview label not found for: {animation_name}")
+
+    def load_large_preview_force_refresh(self, preview_label: QLabel, animation: AnimationMetadata):
+        """Load large preview image with forced refresh (no cache)"""
+        thumbnail_loaded = False
+        
+        # Check if animation has thumbnail path in metadata
+        if hasattr(animation, 'thumbnail') and animation.thumbnail:
+            thumbnail_path = Path("animation_library") / animation.thumbnail
+            if thumbnail_path.exists():
+                try:
+                    print(f"🔍 METADATA: Loading large preview from: {thumbnail_path}")
+                    
+                    # Load with cache busting
+                    pixmap = QPixmap(str(thumbnail_path))
+                    if not pixmap.isNull():
+                        # Force detach from cache
+                        pixmap = pixmap.copy()
+                        
+                        # Scale to fit 300x300 while maintaining aspect ratio
+                        scaled_pixmap = pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        
+                        # Create centered pixmap with dark background
+                        final_pixmap = QPixmap(300, 300)
+                        final_pixmap.fill(QColor(46, 46, 46))
+                        
+                        painter = QPainter(final_pixmap)
+                        painter.setRenderHint(QPainter.Antialiasing)
+                        
+                        # Center the scaled image
+                        x = (300 - scaled_pixmap.width()) // 2
+                        y = (300 - scaled_pixmap.height()) // 2
+                        painter.drawPixmap(x, y, scaled_pixmap)
+                        painter.end()
+                        
+                        preview_label.setPixmap(final_pixmap)
+                        thumbnail_loaded = True
+                        print(f"✅ METADATA: Large preview loaded successfully")
+                    else:
+                        print(f"❌ METADATA: Pixmap is null")
+                except Exception as e:
+                    print(f"❌ METADATA: Error loading large preview: {e}")
+        
+        # Fallback to animation name-based thumbnail path
+        if not thumbnail_loaded:
+            animation_id = getattr(animation, 'id', animation.name)
+            thumbnail_filename = f"{animation_id}.png"
+            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            
+            if thumbnail_path.exists():
+                try:
+                    pixmap = QPixmap(str(thumbnail_path))
+                    if not pixmap.isNull():
+                        pixmap = pixmap.copy()  # Force detach from cache
+                        scaled_pixmap = pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        
+                        final_pixmap = QPixmap(300, 300)
+                        final_pixmap.fill(QColor(46, 46, 46))
+                        
+                        painter = QPainter(final_pixmap)
+                        painter.setRenderHint(QPainter.Antialiasing)
+                        
+                        x = (300 - scaled_pixmap.width()) // 2
+                        y = (300 - scaled_pixmap.height()) // 2
+                        painter.drawPixmap(x, y, scaled_pixmap)
+                        painter.end()
+                        
+                        preview_label.setPixmap(final_pixmap)
+                        thumbnail_loaded = True
+                        print(f"✅ METADATA: Fallback large preview loaded")
+                except Exception as e:
+                    print(f"❌ METADATA: Error loading fallback large preview: {e}")
+        
+        # Show placeholder if still not loaded
+        if not thumbnail_loaded:
+            self.show_large_placeholder_icon(preview_label)
+            print(f"⚠️ METADATA: Using large placeholder icon")
     
     def create_info_group(self, title: str) -> QGroupBox:
         """Create a styled info group"""

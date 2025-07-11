@@ -291,32 +291,29 @@ class AnimationLibraryServer:
             
             # Use animation_name if provided, otherwise use animation_id
             target_identifier = animation_name if animation_name else animation_id
-            print(f"🔄 Updating thumbnail for animation: {target_identifier}")
+            print(f"🔄 Server: Updating thumbnail for animation: {target_identifier}")
             
-            # Call the update thumbnail operator
+            # Call the update thumbnail operator - it will handle sending the success response
             try:
                 if animation_name:
                     result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_name)
                 else:
                     result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_id)
                 
+                # The operator already sends the thumbnail_updated message on success
                 if result == {'FINISHED'}:
-                    # Send confirmation message in the format expected by the communication system
-                    self.send_message({
-                        'type': 'thumbnail_updated',
-                        'status': 'thumbnail_updated', 
-                        'animation_name': animation_name if animation_name else animation_id
-                    })
-                    print(f"✅ Thumbnail updated successfully for: {target_identifier}")
+                    print(f"✅ Server: Thumbnail update operator completed successfully for: {target_identifier}")
+                    # Don't send duplicate message - operator already sent thumbnail_updated
                 else:
                     self.send_message({
                         'type': 'error',
                         'message': f'Failed to update thumbnail for animation {target_identifier}',
                         'error_type': 'thumbnail_update_failed'
                     })
-                    print(f"❌ Thumbnail update failed for: {target_identifier}")
+                    print(f"❌ Server: Thumbnail update failed for: {target_identifier}")
+                    
             except Exception as op_error:
-                print(f"⚠️ Operator call failed: {op_error}")
+                print(f"⚠️ Server: Operator call failed: {op_error}")
                 self.send_message({
                     'type': 'error',
                     'message': f'Thumbnail update operator failed: {str(op_error)}',
@@ -324,7 +321,7 @@ class AnimationLibraryServer:
                 })
                 
         except Exception as e:
-            print(f"❌ Thumbnail update error: {e}")
+            print(f"❌ Server: Thumbnail update error: {e}")
             self.send_message({
                 'type': 'error',
                 'message': f'Thumbnail update error: {str(e)}',
@@ -432,12 +429,16 @@ class AnimationLibraryServer:
         # Gather armature information
         for obj in bpy.context.scene.objects:
             if obj.type == 'ARMATURE':
+                action_name = None
+                if obj.animation_data and obj.animation_data.action:
+                    action_name = obj.animation_data.action.name
+                
                 armature_data = {
                     'name': obj.name,
                     'bones': [bone.name for bone in obj.pose.bones],
                     'bone_count': len(obj.pose.bones),
                     'has_animation': obj.animation_data is not None,
-                    'active_action': obj.animation_data.action.name if (obj.animation_data and obj.animation_data.action) else None
+                    'active_action': action_name
                 }
                 
                 # Add performance info if action exists

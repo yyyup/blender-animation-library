@@ -57,7 +57,7 @@ class ANIMLIB_PT_main_panel(Panel):
         
         # Performance section
         perf_box = layout.box()
-        perf_box.label(text="Performance Benefits:", icon='SPEED')
+        perf_box.label(text="Performance Benefits:", icon='MODIFIER')
         
         perf_grid = perf_box.grid_flow(columns=2, align=True)
         perf_grid.label(text="📤 Extract:")

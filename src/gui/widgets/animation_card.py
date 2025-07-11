@@ -144,70 +144,108 @@ class AnimationThumbnail(QLabel):
         self.is_selected = selected
         # Selection will be handled by the parent card
     
-    def refresh_thumbnail(self, animation_name: str):
-        """Refresh thumbnail for the specified animation"""
-        # Check if animation has thumbnail path in metadata
+def refresh_thumbnail(self, animation_name: str):
+    """Refresh thumbnail for the specified animation with cache clearing"""
+    # Check if this thumbnail is for the updated animation
+    animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+    
+    # Match by name or ID
+    if (animation_name == self.animation_metadata.name or 
+        animation_name == animation_id):
+        
+        print(f"🔄 CACHE: Clearing Qt pixmap cache before refresh")
+        
+        # Clear Qt's pixmap cache completely
+        from PySide6.QtGui import QPixmapCache
+        QPixmapCache.clear()
+        
+        # Force reload the thumbnail image with cache busting
+        self.load_thumbnail_image_force_refresh()
+        print(f"🖼️ Refreshed thumbnail for: {animation_name}")
+
+    def load_thumbnail_image_force_refresh(self):
+        """Load thumbnail image with forced refresh (no cache)"""
         thumbnail_loaded = False
         
         # Check if animation has thumbnail path in metadata
         if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
             thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
             if thumbnail_path.exists():
-                # Load the actual thumbnail image
-                pixmap = QPixmap(str(thumbnail_path))
-                if not pixmap.isNull():
-                    # Scale to fit 120x120 while maintaining aspect ratio
-                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                # Force refresh by checking file modification time
+                try:
+                    file_stat = thumbnail_path.stat()
+                    current_time = time.time()
                     
-                    # Create a centered pixmap with dark background
-                    final_pixmap = QPixmap(120, 120)
-                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
+                    print(f"🔍 CACHE: File exists, size: {file_stat.st_size}, modified: {file_stat.st_mtime}")
                     
-                    painter = QPainter(final_pixmap)
-                    painter.setRenderHint(QPainter.Antialiasing)
+                    # Load with unique identifier to avoid cache
+                    cache_key = f"{thumbnail_path}_{file_stat.st_mtime}_{file_stat.st_size}"
+                    pixmap = QPixmap(str(thumbnail_path))
                     
-                    # Center the scaled image
-                    x = (120 - scaled_pixmap.width()) // 2
-                    y = (120 - scaled_pixmap.height()) // 2
-                    painter.drawPixmap(x, y, scaled_pixmap)
-                    
-                    painter.end()
-                    self.setPixmap(final_pixmap)
-                    thumbnail_loaded = True
+                    if not pixmap.isNull():
+                        # Force detach from cache
+                        pixmap = pixmap.copy()
+                        
+                        # Scale to fit while maintaining aspect ratio
+                        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        
+                        # Create centered pixmap with dark background
+                        final_pixmap = QPixmap(120, 120)
+                        final_pixmap.fill(QColor(46, 46, 46))
+                        
+                        painter = QPainter(final_pixmap)
+                        painter.setRenderHint(QPainter.Antialiasing)
+                        
+                        # Center the scaled image
+                        x = (120 - scaled_pixmap.width()) // 2
+                        y = (120 - scaled_pixmap.height()) // 2
+                        painter.drawPixmap(x, y, scaled_pixmap)
+                        painter.end()
+                        
+                        self.setPixmap(final_pixmap)
+                        thumbnail_loaded = True
+                        print(f"✅ CACHE: Successfully loaded fresh thumbnail")
+                    else:
+                        print(f"❌ CACHE: Pixmap is null after loading")
+                except Exception as e:
+                    print(f"❌ CACHE: Error loading thumbnail: {e}")
         
         # Fallback to animation name-based thumbnail path
         if not thumbnail_loaded:
-            # Try to construct thumbnail path from animation name
             animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
             thumbnail_filename = f"{animation_id}.png"
             thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
             
             if thumbnail_path.exists():
-                pixmap = QPixmap(str(thumbnail_path))
-                if not pixmap.isNull():
-                    # Scale to fit 120x120 while maintaining aspect ratio
-                    scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    
-                    # Create a centered pixmap with dark background
-                    final_pixmap = QPixmap(120, 120)
-                    final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
-                    
-                    painter = QPainter(final_pixmap)
-                    painter.setRenderHint(QPainter.Antialiasing)
-                    
-                    # Center the scaled image
-                    x = (120 - scaled_pixmap.width()) // 2
-                    y = (120 - scaled_pixmap.height()) // 2
-                    painter.drawPixmap(x, y, scaled_pixmap)
-                    
-                    painter.end()
-                    self.setPixmap(final_pixmap)
-                    thumbnail_loaded = True
+                try:
+                    # Same cache-busting approach
+                    pixmap = QPixmap(str(thumbnail_path))
+                    if not pixmap.isNull():
+                        pixmap = pixmap.copy()  # Force detach from cache
+                        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        
+                        final_pixmap = QPixmap(120, 120)
+                        final_pixmap.fill(QColor(46, 46, 46))
+                        
+                        painter = QPainter(final_pixmap)
+                        painter.setRenderHint(QPainter.Antialiasing)
+                        
+                        x = (120 - scaled_pixmap.width()) // 2
+                        y = (120 - scaled_pixmap.height()) // 2
+                        painter.drawPixmap(x, y, scaled_pixmap)
+                        painter.end()
+                        
+                        self.setPixmap(final_pixmap)
+                        thumbnail_loaded = True
+                        print(f"✅ CACHE: Loaded fallback thumbnail")
+                except Exception as e:
+                    print(f"❌ CACHE: Error loading fallback thumbnail: {e}")
         
-        # Fallback to placeholder icon if no image found
+        # Show placeholder if still not loaded
         if not thumbnail_loaded:
             self.show_placeholder_icon()
-    
+            print(f"⚠️ CACHE: Using placeholder icon")
+
     def show_placeholder_icon(self):
         """Show a clean placeholder icon for missing thumbnails"""
         pixmap = QPixmap(120, 120)
