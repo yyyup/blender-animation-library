@@ -85,31 +85,84 @@ class AnimationToolbar(QWidget):
         self.stats_label.setStyleSheet("color: #888; font-size: 10px;")
         layout.addWidget(self.stats_label)
         
-        # Apply styling
+        # Apply Studio Library styling
         self.setStyleSheet("""
+            /* Toolbar styling - Studio Library specifications */
             QWidget {
                 background-color: #393939;
                 border-bottom: 1px solid #555;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             
+            /* Primary buttons - Studio Library blue */
             QPushButton {
                 padding: 8px 16px;
                 border-radius: 4px;
                 font-weight: bold;
                 font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             
-            QLineEdit, QComboBox {
+            QPushButton#primaryButton {
+                background-color: #4a90e2;
+                color: white;
+                border: none;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #357abd;
+            }
+            
+            QPushButton#secondaryButton {
+                background-color: #666;
+                color: white;
+                border: 1px solid #777;
+            }
+            
+            QPushButton#secondaryButton:hover {
+                background-color: #777;
+                border-color: #4a90e2;
+            }
+            
+            QPushButton#secondaryButton:disabled {
+                background-color: #444;
+                color: #666;
+                border-color: #555;
+            }
+            
+            /* Search box and dropdowns */
+            QLineEdit {
                 padding: 6px 8px;
                 border: 1px solid #555;
                 border-radius: 4px;
                 background-color: #4a4a4a;
-                color: white;
+                color: #eeeeee;
                 font-size: 11px;
+                width: 300px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            
+            QComboBox {
+                padding: 6px 8px;
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #4a4a4a;
+                color: #eeeeee;
+                font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             
             QLineEdit:focus, QComboBox:focus {
                 border-color: #4a90e2;
+            }
+            
+            QComboBox::drop-down {
+                border: none;
+            }
+            
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
             }
         """)
     

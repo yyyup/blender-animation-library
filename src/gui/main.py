@@ -88,21 +88,22 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.progress_bar.setMaximumWidth(200)
         self.status_bar.addPermanentWidget(self.progress_bar)
         
-        # Connection status
+        # Connection status with Studio Library colors
         self.connection_status = QLabel("Disconnected")
         self.connection_status.setStyleSheet("color: #ff6b6b; font-weight: bold; padding: 4px;")
         self.status_bar.addPermanentWidget(self.connection_status)
         
         # Show ready message
-        self.status_bar.showMessage("Animation Library ready - Modular Studio Layout with Folders", 3000)
+        self.status_bar.showMessage("Animation Library ready - Studio Library Layout", 3000)
         
-        # Status bar styling
+        # Status bar styling - Studio Library specification
         self.status_bar.setStyleSheet("""
             QStatusBar {
                 background-color: #4a4a4a;
                 border-top: 1px solid #555;
-                color: #ccc;
+                color: #cccccc;
                 font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
         """)
     
@@ -144,20 +145,23 @@ class AnimationLibraryMainWindow(QMainWindow):
         metadata_panel.thumbnail_update_requested.connect(self.on_thumbnail_update_requested)
     
     def get_application_style(self) -> str:
-        """Get the application stylesheet"""
+        """Get the Studio Library application stylesheet"""
         return """
+            /* Main application window - Studio Library colors */
             QMainWindow {
                 background-color: #2e2e2e;
-                color: #ffffff;
+                color: #eeeeee;
             }
             
+            /* Base widget styling */
             QWidget {
                 background-color: #2e2e2e;
-                color: #ffffff;
+                color: #eeeeee;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 11px;
             }
             
+            /* Group boxes for panels */
             QGroupBox {
                 border: 2px solid #555;
                 border-radius: 6px;
@@ -171,10 +175,11 @@ class AnimationLibraryMainWindow(QMainWindow):
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 8px 0 8px;
-                color: #ffffff;
+                color: #eeeeee;
                 background-color: #393939;
             }
             
+            /* Primary buttons - Studio Library blue */
             #primaryButton {
                 background-color: #4a90e2;
                 color: white;
@@ -183,12 +188,14 @@ class AnimationLibraryMainWindow(QMainWindow):
                 padding: 8px 16px;
                 font-weight: bold;
                 font-size: 11px;
+                font-family: "Segoe UI", Arial, sans-serif;
             }
             
             #primaryButton:hover {
                 background-color: #357abd;
             }
             
+            /* Secondary buttons */
             #secondaryButton {
                 background-color: #666;
                 color: white;
@@ -197,6 +204,7 @@ class AnimationLibraryMainWindow(QMainWindow):
                 padding: 8px 16px;
                 font-weight: bold;
                 font-size: 11px;
+                font-family: "Segoe UI", Arial, sans-serif;
             }
             
             #secondaryButton:hover {
@@ -210,10 +218,12 @@ class AnimationLibraryMainWindow(QMainWindow):
                 border-color: #555;
             }
             
+            /* Checkboxes */
             QCheckBox {
-                color: #ffffff;
+                color: #eeeeee;
                 spacing: 8px;
                 font-size: 11px;
+                font-family: "Segoe UI", Arial, sans-serif;
             }
             
             QCheckBox::indicator {
@@ -229,12 +239,39 @@ class AnimationLibraryMainWindow(QMainWindow):
                 border-color: #4a90e2;
             }
             
+            /* Spin boxes */
             QSpinBox {
                 background-color: #4a4a4a;
                 border: 1px solid #555;
                 border-radius: 4px;
                 padding: 4px 8px;
-                color: #ffffff;
+                color: #eeeeee;
+                font-family: "Segoe UI", Arial, sans-serif;
+            }
+            
+            /* Tab widgets */
+            QTabWidget::pane {
+                border: 1px solid #555;
+                background-color: #2e2e2e;
+            }
+            
+            QTabBar::tab {
+                background-color: #4a4a4a;
+                color: #cccccc;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-radius: 4px 4px 0px 0px;
+                font-family: "Segoe UI", Arial, sans-serif;
+            }
+            
+            QTabBar::tab:selected {
+                background-color: #4a90e2;
+                color: white;
+            }
+            
+            QTabBar::tab:hover:!selected {
+                background-color: #5a5a5a;
+                color: #eeeeee;
             }
         """
     

@@ -7,7 +7,7 @@ import time
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QWidget, QMenu, QToolButton, QGraphicsDropShadowEffect, QGridLayout,
-    QApplication, QInputDialog
+    QApplication, QInputDialog, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer, QMimeData
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient, QDrag, QPixmapCache
@@ -24,7 +24,7 @@ from core.animation_data import AnimationMetadata
 
 
 class AnimationThumbnail(QLabel):
-    """Clean thumbnail widget with 120x120 size and AGGRESSIVE cache clearing"""
+    """Clean thumbnail widget with 140x140 size for optimal card utilization"""
     
     def __init__(self, animation_metadata: AnimationMetadata, parent=None):
         super().__init__(parent)
@@ -32,7 +32,7 @@ class AnimationThumbnail(QLabel):
         self.is_selected = False
         self.last_loaded_path = None  # Track last loaded file path
         
-        self.setFixedSize(120, 120)
+        self.setFixedSize(140, 140)  # Larger thumbnail for better card utilization
         self.setAlignment(Qt.AlignCenter)
         
         # Load thumbnail image with clean styling
@@ -149,31 +149,31 @@ class AnimationThumbnail(QLabel):
             return QPixmap()
     
     def _set_centered_pixmap(self, pixmap: QPixmap):
-        """Set pixmap centered in the label with dark background"""
+        """Set pixmap centered in the label with dark background - optimized for 140x140"""
         if pixmap.isNull():
             return
         
-        # Scale to fit 120x120 while maintaining aspect ratio
-        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # Scale to fit 140x140 while maintaining aspect ratio
+        scaled_pixmap = pixmap.scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         
         # Create a centered pixmap with dark background
-        final_pixmap = QPixmap(120, 120)
+        final_pixmap = QPixmap(140, 140)
         final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
         
         painter = QPainter(final_pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
         
         # Center the scaled image
-        x = (120 - scaled_pixmap.width()) // 2
-        y = (120 - scaled_pixmap.height()) // 2
+        x = (140 - scaled_pixmap.width()) // 2
+        y = (140 - scaled_pixmap.height()) // 2
         painter.drawPixmap(x, y, scaled_pixmap)
         
         painter.end()
         self.setPixmap(final_pixmap)
     
     def show_placeholder_icon(self):
-        """Show a clean placeholder icon for missing thumbnails"""
-        pixmap = QPixmap(120, 120)
+        """Show a clean placeholder icon for missing thumbnails - optimized for 140x140"""
+        pixmap = QPixmap(140, 140)
         pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
         
         painter = QPainter(pixmap)
@@ -183,8 +183,8 @@ class AnimationThumbnail(QLabel):
         painter.setPen(QPen(QColor("#666666"), 2))
         painter.setBrush(QBrush(QColor("#666666")))
         
-        # Simple figure representation
-        center_x, center_y = 60, 60
+        # Simple figure representation - scaled for 140x140
+        center_x, center_y = 70, 70  # Updated center for 140x140
         
         # Head
         painter.drawEllipse(center_x-8, center_y-25, 16, 16)
@@ -389,6 +389,10 @@ class AnimationCard(QFrame):
         self.is_selected = False
         self.drag_start_position = None
         
+        # Initialize button attributes
+        self.apply_btn = None
+        self.actions_widget = None
+        
         self.setup_ui()
         self.setup_animations()
         self.setup_style()
@@ -397,32 +401,32 @@ class AnimationCard(QFrame):
         self.setAcceptDrops(False)
     
     def setup_ui(self):
-        """Setup the card UI layout - Studio Library style"""
+        """Setup the card UI layout - Studio Library style with optimized space utilization"""
         self.setFixedSize(160, 220)
         self.setFrameStyle(QFrame.NoFrame)
         
-        # Main layout
+        # Main layout with minimal padding for maximum thumbnail prominence
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(4, 4, 4, 4)  # Reduced from 8px to 4px
+        layout.setSpacing(4)  # Reduced from 8px to 4px for tighter layout
         
-        # Thumbnail at top - 120x120px
+        # Thumbnail at top - 140x140px (increased from 120x120px)
         self.thumbnail = AnimationThumbnail(self.animation_metadata)
         layout.addWidget(self.thumbnail, 0, Qt.AlignHCenter)
         
-        # Animation name (bold)
+        # Animation name (bold) with reduced height
         self.title_label = QLabel(self.animation_metadata.name)
         self.title_label.setObjectName("titleLabel")
         self.title_label.setWordWrap(True)
-        self.title_label.setMaximumHeight(32)
+        self.title_label.setMaximumHeight(28)  # Reduced from 32px to 28px
         self.title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.title_label)
         
-        # Optional metadata (frame count, rig type)
+        # Optional metadata (frame count, rig type) with tighter spacing
         metadata_widget = QWidget()
         metadata_layout = QVBoxLayout(metadata_widget)
         metadata_layout.setContentsMargins(0, 0, 0, 0)
-        metadata_layout.setSpacing(2)
+        metadata_layout.setSpacing(1)  # Reduced from 2px to 1px
         
         # Frame count
         frame_label = QLabel(f"{int(self.animation_metadata.duration_frames)} frames")
@@ -442,36 +446,52 @@ class AnimationCard(QFrame):
         self.actions_widget = self.create_actions_section()
         layout.addWidget(self.actions_widget)
         
-        # Add stretch to push everything to top
+        # Minimal stretch to maintain layout without wasting space
         layout.addStretch()
     
     def create_actions_section(self) -> QWidget:
-        """Create the clean action buttons section"""
+        """Create professional icon-based action buttons with even spacing"""
         widget = QWidget()
+        widget.setObjectName("actionsContainer")
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)  # No spacing, we'll use stretches for even distribution
         
-        # Apply button
-        self.apply_btn = QPushButton("Apply")
-        self.apply_btn.setObjectName("applyButton")
-        self.apply_btn.setFixedHeight(24)
+        # Even spacing pattern: [stretch] [button] [stretch] [button] [stretch] [button] [stretch]
+        layout.addStretch()  # Left spacing
+        
+        # Apply button - Play/Right arrow icon
+        self.apply_btn = QPushButton("▶")
+        self.apply_btn.setObjectName("applyIconButton")
+        self.apply_btn.setFixedSize(26, 26)
+        self.apply_btn.setToolTip("Apply Animation")
         self.apply_btn.clicked.connect(lambda: self.apply_requested.emit(self.animation_data))
         layout.addWidget(self.apply_btn)
         
-        # Delete button
-        delete_btn = QPushButton("Delete")
-        delete_btn.setObjectName("deleteButton")
-        delete_btn.setFixedHeight(24)
+        layout.addStretch()  # Between first and second button
+        
+        # Delete button - Trash icon
+        delete_btn = QPushButton("🗑")
+        delete_btn.setObjectName("deleteIconButton")
+        delete_btn.setFixedSize(26, 26)
+        delete_btn.setToolTip("Delete Animation")
         delete_btn.clicked.connect(lambda: self.delete_requested.emit(self.animation_data))
         layout.addWidget(delete_btn)
         
-        # Rename button
-        rename_btn = QPushButton("Rename")
-        rename_btn.setObjectName("renameButton")
-        rename_btn.setFixedHeight(24)
+        layout.addStretch()  # Between second and third button
+        
+        # Rename button - Edit/Pencil icon
+        rename_btn = QPushButton("✎")
+        rename_btn.setObjectName("renameIconButton")
+        rename_btn.setFixedSize(26, 26)
+        rename_btn.setToolTip("Rename Animation")
         rename_btn.clicked.connect(lambda: self.edit_requested.emit(self.animation_data))
         layout.addWidget(rename_btn)
+        
+        layout.addStretch()  # Right spacing
+        
+        # Initially hidden, shown on hover
+        widget.setVisible(False)
         
         return widget
     
@@ -482,99 +502,162 @@ class AnimationCard(QFrame):
         self.hover_animation.setEasingCurve(QEasingCurve.OutCubic)
     
     def setup_style(self):
-        """Setup Studio Library style card styling"""
+        """Setup Studio Library style card styling with exact specifications"""
         self.setStyleSheet("""
+            /* Main card styling - Studio Library specifications */
             AnimationCard {
-                border: none;
+                border: 2px solid transparent;
                 border-radius: 8px;
                 background-color: #2e2e2e;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             
+            /* Hover effect - subtle brightness increase */
             AnimationCard:hover {
-                background-color: #262626;
+                background-color: #323232;
+                border: 2px solid transparent;
             }
             
+            /* Selected state - Elegant Studio Library blue border with subtle highlight */
             AnimationCard[selected="true"] {
-                border: 1px solid #4a90e2;
-                background-color: #2e2e2e;
+                border: 3px solid #4a90e2;
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2e2e2e, stop:1 #2a2a2a);
             }
             
+            /* Selected hover state - Enhanced elegance */
+            AnimationCard[selected="true"]:hover {
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #323232, stop:1 #2e2e2e);
+                border: 3px solid #5ba0f2;
+            }
+            
+            /* Title label - 11px bold as specified */
             #titleLabel {
                 color: #eeeeee;
                 font-size: 11px;
                 font-weight: bold;
-                padding: 2px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                padding: 2px 4px;
+                background: transparent;
+                border: none;
             }
             
+            /* Metadata labels - proper Studio Library typography */
             #metaLabel {
                 color: #cccccc;
                 font-size: 9px;
-                padding: 1px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                padding: 1px 4px;
+                background: transparent;
+                border: none;
             }
             
             #rigLabel {
-                color: #cccccc;
+                color: #aaaaaa;
                 font-size: 9px;
-                padding: 1px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-style: italic;
+                padding: 1px 4px;
+                background: transparent;
+                border: none;
             }
             
-            #applyButton {
+            /* Apply icon button - Studio Library primary action */
+            #applyIconButton {
                 background-color: #4a90e2;
                 color: white;
                 border: none;
-                padding: 4px 8px;
-                border-radius: 4px;
+                border-radius: 3px;
+                font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
                 font-weight: bold;
-                font-size: 9px;
+                text-align: center;
+                padding: 0px;
             }
             
-            #applyButton:hover {
+            #applyIconButton:hover {
                 background-color: #357abd;
+                border: 1px solid #4a90e2;
             }
             
-            #applyButton:pressed {
+            #applyIconButton:pressed {
                 background-color: #2968a3;
             }
             
-            #deleteButton {
+            /* Delete icon button - Studio Library danger action */
+            #deleteIconButton {
                 background-color: #e74c3c;
                 color: white;
                 border: none;
-                padding: 4px 8px;
-                border-radius: 4px;
+                border-radius: 3px;
+                font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
                 font-weight: bold;
-                font-size: 9px;
+                text-align: center;
+                padding: 0px;
             }
             
-            #deleteButton:hover {
+            #deleteIconButton:hover {
                 background-color: #c0392b;
+                border: 1px solid #e74c3c;
             }
             
-            #renameButton {
-                background-color: #666;
-                color: #cccccc;
+            #deleteIconButton:pressed {
+                background-color: #a93226;
+            }
+            
+            /* Rename icon button - Studio Library secondary action */
+            #renameIconButton {
+                background-color: #666666;
+                color: white;
                 border: none;
-                padding: 4px 8px;
-                border-radius: 4px;
+                border-radius: 3px;
+                font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
                 font-weight: bold;
-                font-size: 9px;
+                text-align: center;
+                padding: 0px;
+            }
+            
+            #renameIconButton:hover {
+                background-color: #777777;
+                border: 1px solid #999999;
+            }
+            
+            #renameIconButton:pressed {
+                background-color: #555555;
+            }
+            
+            /* Actions container - evenly spaced icon layout */
+            #actionsContainer {
+                background: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }
             
             #renameButton:hover {
-                background-color: #777;
+                background-color: #777777;
+            }
+            
+            #renameButton:pressed {
+                background-color: #555555;
             }
         """)
     
     def enterEvent(self, event):
-        """Handle mouse enter event"""
+        """Handle mouse enter event with smooth action button transition"""
         self.is_hovered = True
-        self.actions_widget.setVisible(True)
+        # Show action buttons with smooth transition
+        if hasattr(self, 'actions_widget'):
+            self.actions_widget.setVisible(True)
         super().enterEvent(event)
     
     def leaveEvent(self, event):
-        """Handle mouse leave event"""
+        """Handle mouse leave event with smooth action button transition"""
         self.is_hovered = False
-        self.actions_widget.setVisible(False)
+        # Hide action buttons with smooth transition
+        if hasattr(self, 'actions_widget'):
+            self.actions_widget.setVisible(False)
         super().leaveEvent(event)
     
     def mousePressEvent(self, event):
@@ -627,7 +710,7 @@ class AnimationCard(QFrame):
         drag.setHotSpot(scaled_pixmap.rect().center())
         
         # Execute drag
-        drop_action = drag.exec_(Qt.MoveAction)
+        _ = drag.exec_(Qt.MoveAction)  # Result not used
     
     def contextMenuEvent(self, event):
         """Show context menu with folder move options"""
@@ -729,8 +812,6 @@ class AnimationCardGrid(QWidget):
     
     def setup_ui(self):
         """Setup grid layout"""
-        from PySide6.QtWidgets import QScrollArea
-        
         # Use scroll area
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
@@ -740,8 +821,8 @@ class AnimationCardGrid(QWidget):
         # Grid widget
         self.grid_widget = QWidget()
         self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setSpacing(12)
-        self.grid_layout.setContentsMargins(12, 12, 12, 12)
+        self.grid_layout.setSpacing(1)  # Ultra-tight Studio Library spacing - almost touching
+        self.grid_layout.setContentsMargins(4, 4, 4, 4)  # Minimal container margins
         self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         
         self.scroll_area.setWidget(self.grid_widget)
@@ -777,15 +858,15 @@ class AnimationCardGrid(QWidget):
     
     def add_card(self, animation_card):
         """Add animation card to grid"""
-        # Connect selection signal properly
-        original_mouse_press = animation_card.mousePressEvent
+        # Connect selection signal properly with closure
+        def create_mouse_handler(original_handler, card_reference):
+            def new_mouse_press(event):
+                original_handler(event)
+                if event.button() == Qt.LeftButton:
+                    self.select_card(card_reference)
+            return new_mouse_press
         
-        def new_mouse_press(event):
-            original_mouse_press(event)
-            if event.button() == Qt.LeftButton:
-                self.select_card(animation_card)
-        
-        animation_card.mousePressEvent = new_mouse_press
+        animation_card.mousePressEvent = create_mouse_handler(animation_card.mousePressEvent, animation_card)
         
         self.cards.append(animation_card)
         self.refresh_layout()
@@ -832,15 +913,15 @@ class AnimationCardGrid(QWidget):
         
         # Add all cards to internal list first
         for card in cards_list:
-            # Connect selection signal properly
-            original_mouse_press = card.mousePressEvent
+            # Connect selection signal properly with proper closure
+            def create_mouse_handler(original_handler, card_reference):
+                def new_mouse_press(event):
+                    original_handler(event)
+                    if event.button() == Qt.LeftButton:
+                        self.select_card(card_reference)
+                return new_mouse_press
             
-            def new_mouse_press(event, card_ref=card):
-                original_mouse_press(event)
-                if event.button() == Qt.LeftButton:
-                    self.select_card(card_ref)
-            
-            card.mousePressEvent = new_mouse_press
+            card.mousePressEvent = create_mouse_handler(card.mousePressEvent, card)
             self.cards.append(card)
         
         # Refresh layout once at the end
@@ -958,9 +1039,9 @@ class AnimationCardGrid(QWidget):
             if child and child.widget():
                 child.widget().setParent(None)
         
-        # Step 2: Calculate grid dimensions
-        widget_width = self.scroll_area.viewport().width() - 24  # Account for margins
-        card_width = 220 + 12  # Card width + spacing
+        # Step 2: Calculate grid dimensions based on ultra-tight Studio Library spacing
+        widget_width = self.scroll_area.viewport().width() - 8  # Account for minimal margins (4px each side)
+        card_width = 160 + 1  # Studio Library card width (160px) + ultra-tight spacing (1px)
         columns = max(1, widget_width // card_width)
         
         print(f"📐 Grid layout: {len(self.cards)} cards in {columns} columns")

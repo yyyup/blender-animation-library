@@ -108,136 +108,103 @@ class FolderTreeWidget(QWidget):
         self.tree_widget.setItemDelegate(FolderTreeItemDelegate(self.tree_widget))
         
     def apply_styling(self):
-        """Apply professional dark styling to the folder tree widget"""
+        """Apply professional Studio Library styling to the folder tree widget"""
         self.setStyleSheet("""
+            /* Main folder tree widget styling */
             QTreeWidget {
                 background-color: #2e2e2e;
                 color: #eeeeee;
                 border: none;
                 font-size: 12px;
-                outline: none;
                 font-family: 'Segoe UI', Arial, sans-serif;
+                outline: none;
                 selection-background-color: #3d5afe;
                 alternate-background-color: #2e2e2e;
                 show-decoration-selected: 1;
             }
             
+            /* Tree item styling - exact Studio Library specifications */
             QTreeWidget::item {
-                padding: 10px 12px;
-                border: none;
                 height: 36px;
-                margin: 2px 0px;
+                padding: 10px 12px;
+                margin: 0px;
+                border: none;
                 border-radius: 6px;
-                background-color: #2e2e2e !important;
-                background: #2e2e2e !important;
+                background-color: #2e2e2e;
                 color: #eeeeee;
-                spacing: 10px;
                 font-size: 12px;
-                line-height: 36px;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             
+            /* Selected item - Studio Library blue highlight */
             QTreeWidget::item:selected {
                 background-color: #3d5afe !important;
-                background: #3d5afe !important;
                 color: white !important;
-                font-weight: 500;
+                font-weight: normal;
                 border: none;
             }
             
+            /* Hover state for non-selected items */
             QTreeWidget::item:hover:!selected {
                 background-color: #3a3a3a !important;
-                background: #3a3a3a !important;
                 color: #ffffff;
             }
             
+            /* Selected item hover (keep selected styling) */
             QTreeWidget::item:selected:hover {
                 background-color: #3d5afe !important;
-                background: #3d5afe !important;
                 color: white !important;
             }
             
-            /* Remove alternating row colors - force consistent background */
+            /* Remove all green styling and ensure consistent backgrounds */
             QTreeWidget::item:alternate {
                 background-color: #2e2e2e !important;
-                background: #2e2e2e !important;
             }
             
-            /* Ensure unselected items have the correct background */
             QTreeWidget::item:!selected {
                 background-color: #2e2e2e !important;
-                background: #2e2e2e !important;
             }
             
-            /* Drag and drop highlighting */
-            QTreeWidget::item:drop {
-                background-color: #4caf50;
-                border: 2px solid #66bb6a;
-            }
-            
+            /* Clean branch styling - no tree lines */
             QTreeWidget::branch {
                 background: transparent;
                 width: 16px;
-            }
-            
-            QTreeWidget::branch:has-siblings:!adjoins-item {
-                border-image: none;
                 border: none;
             }
             
-            QTreeWidget::branch:has-siblings:adjoins-item {
-                border-image: none;
-                border: none;
-            }
-            
-            QTreeWidget::branch:!has-children:!has-siblings:adjoins-item {
-                border-image: none;
-                border: none;
-            }
-            
-            QTreeWidget::branch:closed:has-children:has-siblings {
-                background: transparent;
-                image: none;
-                border: none;
-            }
-            
-            QTreeWidget::branch:open:has-children:has-siblings {
-                background: transparent;
-                image: none;
-                border: none;
-            }
-            
-            QTreeWidget::branch:closed:has-children:!has-siblings {
-                background: transparent;
-                image: none;
-                border: none;
-            }
-            
+            QTreeWidget::branch:has-siblings:!adjoins-item,
+            QTreeWidget::branch:has-siblings:adjoins-item,
+            QTreeWidget::branch:!has-children:!has-siblings:adjoins-item,
+            QTreeWidget::branch:closed:has-children:has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings,
+            QTreeWidget::branch:closed:has-children:!has-siblings,
             QTreeWidget::branch:open:has-children:!has-siblings {
                 background: transparent;
-                image: none;
                 border: none;
+                image: none;
             }
             
+            /* Toolbar button styling */
             QPushButton {
-                background-color: #404040;
+                background-color: #666;
                 color: #eeeeee;
-                border: 1px solid #555555;
+                border: 1px solid #777;
                 border-radius: 4px;
-                padding: 6px 12px;
+                padding: 8px 16px;
                 font-size: 11px;
-                font-weight: 500;
+                font-weight: bold;
                 font-family: 'Segoe UI', Arial, sans-serif;
             }
             
             QPushButton:hover {
-                background-color: #4a4a4a;
-                border-color: #3d5afe;
+                background-color: #777;
+                border-color: #4a90e2;
                 color: #ffffff;
             }
             
             QPushButton:pressed {
-                background-color: #353535;
-                border-color: #3d5afe;
+                background-color: #555;
+                border-color: #4a90e2;
             }
         """)
     
@@ -857,13 +824,13 @@ class FolderTreeWidget(QWidget):
         return True
     
     def create_styled_folder_name(self, name: str, count: Optional[int] = None) -> str:
-        """Create a styled folder name with yellow folder icon"""
+        """Create a styled folder name with yellow folder icon according to style guide"""
         if name.startswith("📁"):
-            # Replace the emoji with a better folder icon
+            # Replace the folder emoji with yellow folder text - CSS will handle styling
             folder_name_clean = name[2:].strip()  # Remove 📁 and space
             count_display = f" ({count})" if count is not None else ""
-            # Use a different folder symbol that can be more easily styled yellow
-            return f"� {folder_name_clean}{count_display}"
+            # Use a simple folder icon that can be styled with CSS
+            return f"📁 {folder_name_clean}{count_display}"
         else:
             count_display = f" ({count})" if count is not None else ""
             return f"{name}{count_display}"
