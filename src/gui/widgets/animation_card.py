@@ -1,14 +1,14 @@
 """
-Animation Card Widget
+Animation Card Widget - Studio Library Style
 Professional animation card display with metadata and actions
 """
 
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QWidget, QMenu, QToolButton
+    QWidget, QMenu, QToolButton, QGraphicsDropShadowEffect, QGridLayout
 )
-from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction
+from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient
 from typing import Dict, Any, Optional
 import sys
 from pathlib import Path
@@ -21,8 +21,141 @@ if str(gui_dir) not in sys.path:
 from core.animation_data import AnimationMetadata
 
 
+class AnimationThumbnail(QLabel):
+    """Custom thumbnail widget with performance indicators and overlays"""
+    
+    def __init__(self, animation_metadata: AnimationMetadata, parent=None):
+        super().__init__(parent)
+        self.animation_metadata = animation_metadata
+        self.is_selected = False
+        
+        self.setFixedSize(180, 120)
+        self.setAlignment(Qt.AlignCenter)
+        
+        # Generate thumbnail
+        self.generate_thumbnail()
+        
+        # Setup styling
+        self.setStyleSheet("""
+            QLabel {
+                border: 1px solid #555;
+                border-radius: 6px;
+                background-color: #393939;
+            }
+        """)
+    
+    def generate_thumbnail(self):
+        """Generate a procedural thumbnail for the animation"""
+        # Create a pixmap for the thumbnail
+        pixmap = QPixmap(180, 120)
+        pixmap.fill(QColor(57, 57, 57))  # Dark background
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Background gradient
+        gradient = QLinearGradient(0, 0, 180, 120)
+        gradient.setColorAt(0, QColor(70, 70, 70))
+        gradient.setColorAt(1, QColor(45, 45, 45))
+        painter.fillRect(0, 0, 180, 120, QBrush(gradient))
+        
+        # Rig type indicator
+        from core.animation_data import RigTypeDetector
+        rig_color = RigTypeDetector.get_rig_color(self.animation_metadata.rig_type)
+        rig_emoji = RigTypeDetector.get_rig_emoji(self.animation_metadata.rig_type)
+        
+        # Top-left rig indicator
+        painter.setPen(QPen(QColor(rig_color), 2))
+        painter.setBrush(QBrush(QColor(rig_color).darker(150)))
+        painter.drawRoundedRect(8, 8, 24, 16, 3, 3)
+        
+        # Rig emoji/text
+        painter.setPen(QColor("white"))
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.drawText(10, 20, rig_emoji)
+        
+        # Storage method indicator (top-right)
+        perf_info = self.animation_metadata.get_performance_info()
+        status_color = "#51cf66" if self.animation_metadata.is_blend_file_storage() else "#ffd43b"
+        
+        painter.setPen(QPen(QColor(status_color), 2))
+        painter.setBrush(QBrush(QColor(status_color).darker(150)))
+        painter.drawRoundedRect(148, 8, 24, 16, 3, 3)
+        
+        # Performance emoji
+        painter.setPen(QColor("white"))
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.drawText(152, 20, perf_info['status_emoji'])
+        
+        # Central animation icon/visualization
+        painter.setPen(QPen(QColor("#4a90e2"), 3))
+        
+        # Draw simple bone visualization
+        bone_count = min(self.animation_metadata.total_bones_animated, 8)
+        center_x, center_y = 90, 60
+        
+        for i in range(bone_count):
+            angle = (i / bone_count) * 360
+            import math
+            x = center_x + 20 * math.cos(math.radians(angle))
+            y = center_y + 20 * math.sin(math.radians(angle))
+            
+            # Draw bone as small circle
+            painter.setBrush(QBrush(QColor("#4a90e2")))
+            painter.drawEllipse(int(x-3), int(y-3), 6, 6)
+            
+            # Draw connection to center
+            painter.drawLine(center_x, center_y, int(x), int(y))
+        
+        # Central hub
+        painter.setBrush(QBrush(QColor("#4a90e2").lighter(120)))
+        painter.drawEllipse(center_x-5, center_y-5, 10, 10)
+        
+        # Duration indicator (bottom-right)
+        duration_text = f"{int(self.animation_metadata.duration_frames)}f"
+        painter.setPen(QPen(QColor("black"), 1))
+        painter.setBrush(QBrush(QColor(0, 0, 0, 180)))
+        painter.drawRoundedRect(130, 95, 40, 16, 8, 8)
+        
+        painter.setPen(QColor("white"))
+        painter.setFont(QFont("Arial", 9, QFont.Bold))
+        painter.drawText(135, 106, duration_text)
+        
+        # Keyframe density visualization (bottom)
+        keyframe_density = self.animation_metadata.total_keyframes / max(self.animation_metadata.duration_frames, 1)
+        density_width = int((keyframe_density / 20) * 160)  # Max 160px width
+        density_width = min(max(density_width, 10), 160)  # Clamp between 10-160
+        
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor("#ffd43b").darker(130)))
+        painter.drawRoundedRect(10, 108, density_width, 4, 2, 2)
+        
+        painter.end()
+        self.setPixmap(pixmap)
+    
+    def set_selected(self, selected: bool):
+        """Set selection state"""
+        self.is_selected = selected
+        if selected:
+            self.setStyleSheet("""
+                QLabel {
+                    border: 2px solid #4a90e2;
+                    border-radius: 6px;
+                    background-color: #454545;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QLabel {
+                    border: 1px solid #555;
+                    border-radius: 6px;
+                    background-color: #393939;
+                }
+            """)
+
+
 class AnimationCard(QFrame):
-    """Professional animation card widget with hover effects and actions"""
+    """Professional animation card with Studio Library styling"""
     
     # Signals
     apply_requested = Signal(dict)
@@ -35,6 +168,7 @@ class AnimationCard(QFrame):
         self.animation_data = animation_data
         self.animation_metadata = AnimationMetadata.from_dict(animation_data)
         self.is_hovered = False
+        self.is_selected = False
         
         self.setup_ui()
         self.setup_animations()
@@ -42,163 +176,131 @@ class AnimationCard(QFrame):
     
     def setup_ui(self):
         """Setup the card UI layout"""
-        self.setFixedSize(220, 320)  # Increased height for rig type
+        self.setFixedSize(200, 280)
         self.setFrameStyle(QFrame.NoFrame)
         
         # Main layout
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-        
-        # Thumbnail section
-        self.thumbnail_widget = self.create_thumbnail_widget()
-        layout.addWidget(self.thumbnail_widget)
-        
-        # Title section
-        self.title_label = self.create_title_label()
-        layout.addWidget(self.title_label)
-        
-        # Metadata section
-        self.metadata_widget = self.create_metadata_widget()
-        layout.addWidget(self.metadata_widget)
-        
-        # Tags section
-        self.tags_widget = self.create_tags_widget()
-        layout.addWidget(self.tags_widget)
-        
-        # Actions section
-        self.actions_widget = self.create_actions_widget()
-        layout.addWidget(self.actions_widget)
-        
-        layout.addStretch()
-    
-    def create_thumbnail_widget(self) -> QWidget:
-        """Create thumbnail display widget"""
-        widget = QFrame()
-        widget.setFixedSize(196, 120)
-        widget.setObjectName("thumbnail")
-        
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Placeholder thumbnail
-        thumbnail_label = QLabel()
-        thumbnail_label.setAlignment(Qt.AlignCenter)
-        thumbnail_label.setText("🎬\nAnimation\nPreview")
-        thumbnail_label.setObjectName("thumbnailLabel")
-        
-        layout.addWidget(thumbnail_label)
-        
-        # Overlay with duration
-        duration = self.animation_metadata.duration_frames
-        duration_label = QLabel(f"{int(duration)}f")
-        duration_label.setObjectName("durationLabel")
-        duration_label.setAlignment(Qt.AlignCenter)
-        
-        # Position duration label at bottom right
-        duration_label.setParent(widget)
-        duration_label.setGeometry(160, 95, 30, 20)
-        
-        return widget
-    
-    def create_title_label(self) -> QLabel:
-        """Create animation title label"""
-        label = QLabel(self.animation_metadata.name)
-        label.setObjectName("titleLabel")
-        label.setWordWrap(True)
-        label.setMaximumHeight(50)
-        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        return label
-    
-    def create_metadata_widget(self) -> QWidget:
-        """Create metadata display widget"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        
-        # Duration and bones info
-        duration = int(self.animation_metadata.duration_frames)
-        bones = self.animation_metadata.total_bones_animated
-        keyframes = self.animation_metadata.total_keyframes
-        
-        info_text = f"{duration} frames • {bones} bones"
-        info_label = QLabel(info_text)
-        info_label.setObjectName("infoLabel")
-        layout.addWidget(info_label)
-        
-        # Keyframes info
-        keyframe_text = f"{keyframes} keyframes"
-        keyframe_label = QLabel(keyframe_text)
-        keyframe_label.setObjectName("keyframeLabel")
-        layout.addWidget(keyframe_label)
-        
-        # Rig type info with emoji and color
-        rig_type = self.animation_metadata.rig_type
-        # Import here to avoid circular imports
-        import sys
-        from pathlib import Path
-        gui_dir = Path(__file__).parent.parent.parent
-        if str(gui_dir) not in sys.path:
-            sys.path.insert(0, str(gui_dir))
-        from core.animation_data import RigTypeDetector
-        
-        rig_emoji = RigTypeDetector.get_rig_emoji(rig_type)
-        rig_color = RigTypeDetector.get_rig_color(rig_type)
-        
-        rig_label = QLabel(f"{rig_emoji} {rig_type} Rig")
-        rig_label.setObjectName("rigLabel")
-        rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold; font-size: 9px;")
-        layout.addWidget(rig_label)
-        
-        # Creation date
-        created_date = self.animation_metadata.created_date[:16].replace('T', ' ')
-        date_label = QLabel(f"Created: {created_date}")
-        date_label.setObjectName("dateLabel")
-        layout.addWidget(date_label)
-        
-        return widget
-    
-    def create_tags_widget(self) -> QWidget:
-        """Create tags display widget"""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        
-        tags = self.animation_metadata.tags[:3]  # Show first 3 tags
-        
-        for tag in tags:
-            tag_label = QLabel(tag)
-            tag_label.setObjectName("tagLabel")
-            tag_label.setMaximumWidth(60)
-            layout.addWidget(tag_label)
-        
-        if len(self.animation_metadata.tags) > 3:
-            more_label = QLabel(f"+{len(self.animation_metadata.tags) - 3}")
-            more_label.setObjectName("moreTagsLabel")
-            layout.addWidget(more_label)
-        
-        layout.addStretch()
-        return widget
-    
-    def create_actions_widget(self) -> QWidget:
-        """Create action buttons widget"""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
         
-        # Apply button (primary action)
+        # Thumbnail
+        self.thumbnail = AnimationThumbnail(self.animation_metadata)
+        layout.addWidget(self.thumbnail)
+        
+        # Info section
+        info_widget = self.create_info_section()
+        layout.addWidget(info_widget)
+        
+        # Actions section (hidden by default, shown on hover)
+        self.actions_widget = self.create_actions_section()
+        self.actions_widget.setVisible(False)
+        layout.addWidget(self.actions_widget)
+    
+    def create_info_section(self) -> QWidget:
+        """Create the information section"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        
+        # Title
+        self.title_label = QLabel(self.animation_metadata.name)
+        self.title_label.setObjectName("titleLabel")
+        self.title_label.setWordWrap(True)
+        self.title_label.setMaximumHeight(32)
+        self.title_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        layout.addWidget(self.title_label)
+        
+        # Metadata row 1: Duration and bones
+        meta1_widget = QWidget()
+        meta1_layout = QHBoxLayout(meta1_widget)
+        meta1_layout.setContentsMargins(0, 0, 0, 0)
+        meta1_layout.setSpacing(8)
+        
+        duration_label = QLabel(f"{int(self.animation_metadata.duration_frames)}f")
+        duration_label.setObjectName("metaLabel")
+        meta1_layout.addWidget(duration_label)
+        
+        bones_label = QLabel(f"{self.animation_metadata.total_bones_animated} bones")
+        bones_label.setObjectName("metaLabel")
+        meta1_layout.addWidget(bones_label)
+        
+        meta1_layout.addStretch()
+        layout.addWidget(meta1_widget)
+        
+        # Metadata row 2: Performance and rig
+        meta2_widget = QWidget()
+        meta2_layout = QHBoxLayout(meta2_widget)
+        meta2_layout.setContentsMargins(0, 0, 0, 0)
+        meta2_layout.setSpacing(8)
+        
+        # Performance indicator
+        perf_info = self.animation_metadata.get_performance_info()
+        perf_label = QLabel(f"{perf_info['status_emoji']} {perf_info['application_time']}")
+        perf_label.setObjectName("perfLabel")
+        
+        if self.animation_metadata.is_blend_file_storage():
+            perf_label.setStyleSheet("color: #51cf66; font-weight: bold; font-size: 9px;")
+        else:
+            perf_label.setStyleSheet("color: #ffd43b; font-weight: bold; font-size: 9px;")
+        
+        meta2_layout.addWidget(perf_label)
+        
+        # Rig type
+        from core.animation_data import RigTypeDetector
+        rig_emoji = RigTypeDetector.get_rig_emoji(self.animation_metadata.rig_type)
+        rig_color = RigTypeDetector.get_rig_color(self.animation_metadata.rig_type)
+        
+        rig_label = QLabel(f"{rig_emoji} {self.animation_metadata.rig_type}")
+        rig_label.setObjectName("rigLabel")
+        rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold; font-size: 9px;")
+        meta2_layout.addWidget(rig_label)
+        
+        meta2_layout.addStretch()
+        layout.addWidget(meta2_widget)
+        
+        # Tags (first 2)
+        if self.animation_metadata.tags:
+            tags_widget = QWidget()
+            tags_layout = QHBoxLayout(tags_widget)
+            tags_layout.setContentsMargins(0, 0, 0, 0)
+            tags_layout.setSpacing(4)
+            
+            for tag in self.animation_metadata.tags[:2]:
+                tag_label = QLabel(tag)
+                tag_label.setObjectName("tagLabel")
+                tags_layout.addWidget(tag_label)
+            
+            if len(self.animation_metadata.tags) > 2:
+                more_label = QLabel(f"+{len(self.animation_metadata.tags) - 2}")
+                more_label.setObjectName("moreTagsLabel")
+                tags_layout.addWidget(more_label)
+            
+            tags_layout.addStretch()
+            layout.addWidget(tags_widget)
+        
+        return widget
+    
+    def create_actions_section(self) -> QWidget:
+        """Create the actions section"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(6)
+        
+        # Apply button
         self.apply_btn = QPushButton("Apply")
         self.apply_btn.setObjectName("applyButton")
+        self.apply_btn.setFixedHeight(24)
         self.apply_btn.clicked.connect(lambda: self.apply_requested.emit(self.animation_data))
         layout.addWidget(self.apply_btn)
         
-        # Options button (secondary actions)
+        # Options menu button
         self.options_btn = QToolButton()
         self.options_btn.setObjectName("optionsButton")
         self.options_btn.setText("⋯")
+        self.options_btn.setFixedSize(24, 24)
         self.options_btn.setToolTip("More options")
         
         # Create options menu
@@ -211,6 +313,8 @@ class AnimationCard(QFrame):
         edit_action = QAction("Edit Metadata", self)
         edit_action.triggered.connect(lambda: self.edit_requested.emit(self.animation_data))
         options_menu.addAction(edit_action)
+        
+        options_menu.addSeparator()
         
         delete_action = QAction("Delete", self)
         delete_action.triggered.connect(lambda: self.delete_requested.emit(self.animation_data))
@@ -226,75 +330,53 @@ class AnimationCard(QFrame):
     def setup_animations(self):
         """Setup hover animations"""
         self.hover_animation = QPropertyAnimation(self, b"geometry")
-        self.hover_animation.setDuration(200)
+        self.hover_animation.setDuration(150)
         self.hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+        
+        # Add subtle drop shadow
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(8)
+        shadow.setOffset(2, 2)
+        shadow.setColor(QColor(0, 0, 0, 60))
+        self.setGraphicsEffect(shadow)
     
     def setup_style(self):
         """Setup card styling"""
         self.setStyleSheet("""
             AnimationCard {
-                border: 2px solid #404040;
-                border-radius: 12px;
-                background-color: #2b2b2b;
+                border: 1px solid #555;
+                border-radius: 8px;
+                background-color: #4a4a4a;
             }
             
             AnimationCard:hover {
-                border-color: #0078d4;
-                background-color: #353535;
+                border-color: #4a90e2;
+                background-color: #525252;
             }
             
-            #thumbnail {
-                border: 1px solid #555;
-                border-radius: 8px;
-                background-color: #1e1e1e;
-            }
-            
-            #thumbnailLabel {
-                color: #888;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            
-            #durationLabel {
-                background-color: rgba(0, 0, 0, 0.7);
-                color: white;
-                border-radius: 10px;
-                font-size: 10px;
-                font-weight: bold;
-                padding: 2px 6px;
+            AnimationCard[selected="true"] {
+                border-color: #4a90e2;
+                border-width: 2px;
+                background-color: #525252;
             }
             
             #titleLabel {
                 color: #ffffff;
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: bold;
+                padding: 0px;
             }
             
-            #infoLabel {
+            #metaLabel {
                 color: #cccccc;
-                font-size: 10px;
-            }
-            
-            #keyframeLabel {
-                color: #aaaaaa;
                 font-size: 9px;
-            }
-            
-            #rigLabel {
-                font-size: 9px;
-                font-weight: bold;
-                padding: 1px 0px;
-            }
-            
-            #dateLabel {
-                color: #888888;
-                font-size: 8px;
+                padding: 0px;
             }
             
             #tagLabel {
-                background-color: #0078d4;
+                background-color: #4a90e2;
                 color: white;
-                padding: 2px 6px;
+                padding: 1px 6px;
                 border-radius: 8px;
                 font-size: 8px;
                 font-weight: bold;
@@ -307,47 +389,64 @@ class AnimationCard(QFrame):
             }
             
             #applyButton {
-                background-color: #0078d4;
+                background-color: #4a90e2;
                 color: white;
                 border: none;
-                padding: 8px 16px;
-                border-radius: 6px;
+                padding: 4px 12px;
+                border-radius: 4px;
                 font-weight: bold;
-                font-size: 11px;
+                font-size: 10px;
             }
             
             #applyButton:hover {
-                background-color: #106ebe;
+                background-color: #357abd;
             }
             
             #applyButton:pressed {
-                background-color: #005a9e;
+                background-color: #2968a3;
             }
             
             #optionsButton {
-                background-color: #404040;
+                background-color: #666;
                 color: #cccccc;
-                border: 1px solid #555;
-                padding: 6px 8px;
-                border-radius: 6px;
+                border: 1px solid #777;
+                border-radius: 4px;
                 font-weight: bold;
+                font-size: 12px;
             }
             
             #optionsButton:hover {
-                background-color: #4a4a4a;
-                border-color: #0078d4;
+                background-color: #777;
+                border-color: #4a90e2;
             }
         """)
     
     def enterEvent(self, event):
         """Handle mouse enter event"""
         self.is_hovered = True
+        self.actions_widget.setVisible(True)
         super().enterEvent(event)
     
     def leaveEvent(self, event):
         """Handle mouse leave event"""
         self.is_hovered = False
+        self.actions_widget.setVisible(False)
         super().leaveEvent(event)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for selection"""
+        if event.button() == Qt.LeftButton:
+            self.set_selected(True)
+        super().mousePressEvent(event)
+    
+    def set_selected(self, selected: bool):
+        """Set selection state"""
+        self.is_selected = selected
+        self.thumbnail.set_selected(selected)
+        
+        self.setProperty("selected", selected)
+        self.style().unpolish(self)
+        self.style().polish(self)
     
     def update_animation_data(self, animation_data: Dict[str, Any]):
         """Update the animation data and refresh display"""
@@ -357,20 +456,9 @@ class AnimationCard(QFrame):
         # Update UI elements
         self.title_label.setText(self.animation_metadata.name)
         
-        # Update metadata
-        duration = int(self.animation_metadata.duration_frames)
-        bones = self.animation_metadata.total_bones_animated
-        keyframes = self.animation_metadata.total_keyframes
-        
-        # Find and update info labels
-        info_widget = self.metadata_widget
-        info_label = info_widget.findChild(QLabel, "infoLabel")
-        if info_label:
-            info_label.setText(f"{duration} frames • {bones} bones")
-        
-        keyframe_label = info_widget.findChild(QLabel, "keyframeLabel")
-        if keyframe_label:
-            keyframe_label.setText(f"{keyframes} keyframes")
+        # Regenerate thumbnail
+        self.thumbnail.animation_metadata = self.animation_metadata
+        self.thumbnail.generate_thumbnail()
     
     def set_loading_state(self, loading: bool):
         """Set card loading state"""
@@ -386,25 +474,84 @@ class AnimationCard(QFrame):
 class AnimationCardGrid(QWidget):
     """Grid container for animation cards with responsive layout"""
     
+    animation_selected = Signal(dict)  # Emits selected animation data
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.cards = []
+        self.selected_card = None
         self.setup_ui()
     
     def setup_ui(self):
         """Setup grid layout"""
-        from PySide6.QtWidgets import QGridLayout
-        self.grid_layout = QGridLayout(self)
-        self.grid_layout.setSpacing(16)
-        self.grid_layout.setContentsMargins(16, 16, 16, 16)
+        from PySide6.QtWidgets import QScrollArea
+        
+        # Use scroll area
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # Grid widget
+        self.grid_widget = QWidget()
+        self.grid_layout = QGridLayout(self.grid_widget)
+        self.grid_layout.setSpacing(12)
+        self.grid_layout.setContentsMargins(12, 12, 12, 12)
         self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        
+        self.scroll_area.setWidget(self.grid_widget)
+        
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.scroll_area)
+        
+        # Styling
+        self.setStyleSheet("""
+            QScrollArea {
+                background-color: #2e2e2e;
+                border: none;
+            }
+            
+            QScrollBar:vertical {
+                background-color: #4a4a4a;
+                width: 12px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #666;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background-color: #777;
+            }
+        """)
     
-    def add_card(self, animation_card: AnimationCard):
+    def add_card(self, animation_card):
         """Add animation card to grid"""
+        # Connect selection signal
+        animation_card.mousePressEvent = lambda event: self.select_card(animation_card)
+        
         self.cards.append(animation_card)
         self.refresh_layout()
     
-    def remove_card(self, animation_card: AnimationCard):
+    def select_card(self, card):
+        """Select an animation card"""
+        # Deselect previous card
+        if self.selected_card:
+            self.selected_card.set_selected(False)
+        
+        # Select new card
+        self.selected_card = card
+        card.set_selected(True)
+        
+        # Emit selection signal
+        self.animation_selected.emit(card.animation_data)
+    
+    def remove_card(self, animation_card):
         """Remove animation card from grid"""
         if animation_card in self.cards:
             self.cards.remove(animation_card)
@@ -416,6 +563,7 @@ class AnimationCardGrid(QWidget):
         for card in self.cards:
             card.setParent(None)
         self.cards.clear()
+        self.selected_card = None
     
     def refresh_layout(self):
         """Refresh the grid layout"""
@@ -426,8 +574,8 @@ class AnimationCardGrid(QWidget):
                 self.grid_layout.removeItem(item)
         
         # Calculate columns based on widget width
-        widget_width = self.width()
-        card_width = 220 + 16  # Card width + spacing
+        widget_width = self.scroll_area.viewport().width() - 24  # Account for margins
+        card_width = 220 + 12  # Card width + spacing
         columns = max(1, widget_width // card_width)
         
         # Add cards to grid

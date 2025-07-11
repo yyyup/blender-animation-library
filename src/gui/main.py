@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Animation Library Qt GUI - Main Application
-Refactored professional interface with rig compatibility system
+Clean, modular Studio Library interface
 """
 
 import sys
@@ -13,20 +13,15 @@ gui_dir = Path(__file__).parent.parent
 if str(gui_dir) not in sys.path:
     sys.path.insert(0, str(gui_dir))
 
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QSplitter, QGroupBox, QLabel, QPushButton, QLineEdit, QComboBox,
-    QScrollArea, QStatusBar, QMessageBox, QProgressBar, QFrame, QSpinBox,
-    QCheckBox
-)
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtWidgets import QApplication, QMainWindow, QStatusBar, QProgressBar, QLabel, QMessageBox
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QFont
 
 from gui.utils.blender_connection import BlenderConnectionHandler
-from gui.widgets.animation_card import AnimationCard, AnimationCardGrid
+from gui.layouts.studio_layout import StudioLayoutManager
 from core.animation_data import AnimationMetadata, ApplyOptions
 from core.library_storage import AnimationLibraryManager
-import time
+from gui.widgets.animation_card import AnimationCard
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -34,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnimationLibraryMainWindow(QMainWindow):
-    """Main application window for Animation Library"""
+    """Main window with modular Studio Library layout"""
     
     def __init__(self):
         super().__init__()
@@ -43,284 +38,43 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.blender_connection = BlenderConnectionHandler()
         self.library_manager = AnimationLibraryManager()
         
+        # Layout manager
+        self.layout_manager = StudioLayoutManager(self)
+        
         # Current state
         self.current_selection = []
         self.current_armature = None
         self.available_armatures = []
-        
-        # UI Components
-        self.animation_cards = []
+        self.current_filter = "all"
+        self.current_animation = None
         
         self.setup_ui()
         self.setup_connections()
         self.load_library()
         
+        print("🎨 Modular Studio Library interface initialized!")
+        
         # Auto-refresh timer
         self.refresh_timer = QTimer()
-        self.refresh_timer.timeout.connect(self.refresh_library_display)
-        self.refresh_timer.start(5000)  # Refresh every 5 seconds
+        self.refresh_timer.timeout.connect(self.refresh_selection_info)
+        self.refresh_timer.start(2000)
     
     def setup_ui(self):
         """Setup the main UI"""
-        self.setWindowTitle("Animation Library - Professional Edition")
-        self.setGeometry(100, 100, 1600, 1000)
+        self.setWindowTitle("Animation Library - Professional Studio Layout")
+        self.setGeometry(100, 100, 1800, 1000)
         
         # Apply professional dark theme
         self.setStyleSheet(self.get_application_style())
         
-        # Central widget with splitter
-        central_widget = QWidget()
+        # Setup layout using layout manager
+        central_widget = self.layout_manager.setup_layout()
         self.setCentralWidget(central_widget)
-        
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        
-        # Main splitter
-        main_splitter = QSplitter(Qt.Horizontal)
-        main_layout.addWidget(main_splitter)
-        
-        # Left panel - Library browser
-        left_panel = self.create_library_panel()
-        main_splitter.addWidget(left_panel)
-        
-        # Right panel - Controls and mapping
-        right_panel = self.create_controls_panel()
-        main_splitter.addWidget(right_panel)
-        
-        # Set splitter proportions
-        main_splitter.setSizes([1000, 600])
         
         # Status bar
         self.setup_status_bar()
-    
-    def create_library_panel(self) -> QWidget:
-        """Create the animation library panel"""
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setSpacing(12)
         
-        # Connection section
-        connection_section = self.create_connection_section()
-        layout.addWidget(connection_section)
-        
-        # Search and filter section
-        search_section = self.create_search_section()
-        layout.addWidget(search_section)
-        
-        # Animation library section
-        library_section = self.create_animation_library_section()
-        layout.addWidget(library_section)
-        
-        return panel
-    
-    def create_connection_section(self) -> QWidget:
-        """Create Blender connection controls"""
-        section = QGroupBox("Blender Connection")
-        layout = QHBoxLayout(section)
-        
-        # Connection button
-        self.connect_btn = QPushButton("Connect to Blender")
-        self.connect_btn.setObjectName("primaryButton")
-        self.connect_btn.clicked.connect(self.toggle_blender_connection)
-        layout.addWidget(self.connect_btn)
-        
-        # Extract button
-        self.extract_btn = QPushButton("Extract Animation")
-        self.extract_btn.setObjectName("secondaryButton")
-        self.extract_btn.setEnabled(False)
-        self.extract_btn.clicked.connect(self.extract_animation)
-        layout.addWidget(self.extract_btn)
-        
-        # Connection status indicator
-        self.connection_indicator = QLabel("●")
-        self.connection_indicator.setObjectName("connectionIndicator")
-        self.connection_indicator.setStyleSheet("color: #ff6b6b; font-size: 16px;")
-        layout.addWidget(self.connection_indicator)
-        
-        layout.addStretch()
-        
-        return section
-    
-    def create_search_section(self) -> QWidget:
-        """Create search and filter controls"""
-        section = QGroupBox("Search & Filter")
-        layout = QVBoxLayout(section)
-        
-        # Search row
-        search_row = QHBoxLayout()
-        
-        self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search animations by name, description, or tags...")
-        self.search_box.textChanged.connect(self.filter_animations)
-        search_row.addWidget(self.search_box)
-        
-        # Tag filter
-        self.tag_filter = QComboBox()
-        self.tag_filter.setMinimumWidth(120)
-        self.tag_filter.addItem("All Tags")
-        self.tag_filter.currentTextChanged.connect(self.filter_animations)
-        search_row.addWidget(self.tag_filter)
-        
-        # Rig type filter
-        self.rig_filter = QComboBox()
-        self.rig_filter.addItem("All Rigs")
-        self.rig_filter.addItem("Rigify")
-        self.rig_filter.addItem("Auto-Rig Pro")
-        self.rig_filter.addItem("Mixamo")
-        self.rig_filter.addItem("Unknown")
-        self.rig_filter.currentTextChanged.connect(self.filter_animations)
-        search_row.addWidget(self.rig_filter)
-        
-        layout.addLayout(search_row)
-        
-        # Statistics row
-        self.stats_label = QLabel("No animations loaded")
-        self.stats_label.setStyleSheet("color: #888; font-size: 10px; padding: 4px;")
-        layout.addWidget(self.stats_label)
-        
-        return section
-    
-    def create_animation_library_section(self) -> QWidget:
-        """Create animation library display"""
-        section = QGroupBox("Animation Library")
-        layout = QVBoxLayout(section)
-        
-        # Scroll area for animation cards
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
-        # Animation cards grid
-        self.animation_grid = AnimationCardGrid()
-        self.scroll_area.setWidget(self.animation_grid)
-        
-        layout.addWidget(self.scroll_area)
-        
-        return section
-    
-    def create_controls_panel(self) -> QWidget:
-        """Create the controls panel"""
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setSpacing(12)
-        
-        # Current selection section
-        selection_section = self.create_selection_section()
-        layout.addWidget(selection_section)
-        
-        # Simple apply options section
-        apply_section = self.create_apply_options_section()
-        layout.addWidget(apply_section)
-        
-        # Rig compatibility info section
-        compatibility_section = self.create_compatibility_section()
-        layout.addWidget(compatibility_section)
-        
-        layout.addStretch()
-        
-        return panel
-    
-    def create_selection_section(self) -> QWidget:
-        """Create current selection display"""
-        section = QGroupBox("Current Selection")
-        layout = QVBoxLayout(section)
-        
-        # Armature info
-        self.armature_label = QLabel("No armature selected")
-        self.armature_label.setObjectName("infoLabel")
-        layout.addWidget(self.armature_label)
-        
-        # Bones info
-        self.bones_label = QLabel("No bones selected")
-        self.bones_label.setObjectName("infoLabel")
-        layout.addWidget(self.bones_label)
-        
-        # Frame info
-        self.frame_label = QLabel("Frame: --")
-        self.frame_label.setObjectName("infoLabel")
-        layout.addWidget(self.frame_label)
-        
-        return section
-    
-    def create_apply_options_section(self) -> QWidget:
-        """Create simple apply options"""
-        section = QGroupBox("Apply Options")
-        layout = QVBoxLayout(section)
-        
-        # Info label
-        info_label = QLabel("Animations will be applied to compatible rigs automatically.")
-        info_label.setObjectName("infoLabel")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-        
-        # Selected bones only option
-        self.selected_bones_only_cb = QCheckBox("Apply to selected bones only")
-        self.selected_bones_only_cb.setChecked(False)
-        self.selected_bones_only_cb.setToolTip("Only apply animation to currently selected bones in Blender")
-        layout.addWidget(self.selected_bones_only_cb)
-        
-        # Current selection display
-        self.selected_bones_info = QLabel("No bones selected")
-        self.selected_bones_info.setObjectName("infoLabel")
-        self.selected_bones_info.setStyleSheet("font-size: 9px; color: #888; padding: 2px 8px;")
-        layout.addWidget(self.selected_bones_info)
-        
-        # Frame offset option
-        frame_layout = QHBoxLayout()
-        frame_layout.addWidget(QLabel("Start at frame:"))
-        
-        self.frame_offset_spin = QSpinBox()
-        self.frame_offset_spin.setRange(1, 9999)
-        self.frame_offset_spin.setValue(1)
-        frame_layout.addWidget(self.frame_offset_spin)
-        
-        frame_layout.addStretch()
-        layout.addLayout(frame_layout)
-        
-        # Channel selection
-        channels_group = QGroupBox("Channels to Apply")
-        channels_layout = QHBoxLayout(channels_group)
-        
-        self.location_cb = QCheckBox("Location")
-        self.location_cb.setChecked(True)
-        channels_layout.addWidget(self.location_cb)
-        
-        self.rotation_cb = QCheckBox("Rotation")
-        self.rotation_cb.setChecked(True)
-        channels_layout.addWidget(self.rotation_cb)
-        
-        self.scale_cb = QCheckBox("Scale")
-        self.scale_cb.setChecked(True)
-        channels_layout.addWidget(self.scale_cb)
-        
-        layout.addWidget(channels_group)
-        
-        return section
-    
-    def create_compatibility_section(self) -> QWidget:
-        """Create rig compatibility information section"""
-        section = QGroupBox("Rig Compatibility")
-        layout = QVBoxLayout(section)
-        
-        # Current rig type display
-        self.current_rig_label = QLabel("Current Rig: Not detected")
-        self.current_rig_label.setObjectName("infoLabel")
-        layout.addWidget(self.current_rig_label)
-        
-        # Compatibility guide
-        guide_text = (
-            "🟢 Rigify → Rigify rigs\n"
-            "🔵 Auto-Rig Pro → Auto-Rig Pro rigs\n"
-            "🟡 Mixamo → Mixamo rigs\n"
-            "⚪ Unknown rigs (user discretion)"
-        )
-        guide_label = QLabel(guide_text)
-        guide_label.setObjectName("infoLabel")
-        guide_label.setStyleSheet("font-size: 9px; color: #aaa; padding: 4px;")
-        layout.addWidget(guide_label)
-        
-        return section
+        print("✅ Modular Studio Library layout created!")
     
     def setup_status_bar(self):
         """Setup the status bar"""
@@ -339,10 +93,25 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.connection_status)
         
         # Show ready message
-        self.status_bar.showMessage("Animation Library ready", 3000)
+        self.status_bar.showMessage("Animation Library ready - Modular Studio Layout", 3000)
+        
+        # Status bar styling
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                background-color: #4a4a4a;
+                border-top: 1px solid #555;
+                color: #ccc;
+                font-size: 11px;
+            }
+        """)
     
     def setup_connections(self):
         """Setup signal connections"""
+        # Get widgets from layout manager
+        toolbar = self.layout_manager.get_widget('toolbar')
+        folder_tree = self.layout_manager.get_widget('folder_tree')
+        animation_grid = self.layout_manager.get_widget('animation_grid')
+        
         # Blender connection signals
         self.blender_connection.connected.connect(self.on_blender_connected)
         self.blender_connection.disconnected.connect(self.on_blender_disconnected)
@@ -354,26 +123,39 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.blender_connection.animation_extracted.connect(self.on_animation_extracted)
         self.blender_connection.animation_applied.connect(self.on_animation_applied)
         self.blender_connection.error_received.connect(self.on_blender_error)
+        
+        # UI signals
+        toolbar.connect_requested.connect(self.toggle_blender_connection)
+        toolbar.extract_requested.connect(self.extract_animation)
+        toolbar.search_changed.connect(self.on_search_changed)
+        toolbar.tag_filter_changed.connect(self.on_tag_filter_changed)
+        toolbar.rig_filter_changed.connect(self.on_rig_filter_changed)
+        
+        folder_tree.folder_selected.connect(self.on_folder_selected)
+        animation_grid.animation_selected.connect(self.on_animation_selected)
     
     def get_application_style(self) -> str:
         """Get the application stylesheet"""
         return """
             QMainWindow {
-                background-color: #2b2b2b;
+                background-color: #2e2e2e;
                 color: #ffffff;
             }
             
             QWidget {
-                background-color: #2b2b2b;
+                background-color: #2e2e2e;
                 color: #ffffff;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 11px;
             }
             
             QGroupBox {
                 border: 2px solid #555;
-                border-radius: 8px;
+                border-radius: 6px;
                 margin-top: 12px;
                 font-weight: bold;
                 padding-top: 8px;
+                background-color: #393939;
             }
             
             QGroupBox::title {
@@ -381,70 +163,48 @@ class AnimationLibraryMainWindow(QMainWindow):
                 left: 12px;
                 padding: 0 8px 0 8px;
                 color: #ffffff;
+                background-color: #393939;
             }
             
             #primaryButton {
-                background-color: #0078d4;
+                background-color: #4a90e2;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 4px;
                 padding: 8px 16px;
                 font-weight: bold;
                 font-size: 11px;
             }
             
             #primaryButton:hover {
-                background-color: #106ebe;
-            }
-            
-            #primaryButton:pressed {
-                background-color: #005a9e;
+                background-color: #357abd;
             }
             
             #secondaryButton {
-                background-color: #404040;
+                background-color: #666;
                 color: white;
-                border: 1px solid #555;
-                border-radius: 6px;
+                border: 1px solid #777;
+                border-radius: 4px;
                 padding: 8px 16px;
                 font-weight: bold;
                 font-size: 11px;
             }
             
             #secondaryButton:hover {
-                background-color: #4a4a4a;
-                border-color: #0078d4;
+                background-color: #777;
+                border-color: #4a90e2;
             }
             
             #secondaryButton:disabled {
-                background-color: #2a2a2a;
+                background-color: #444;
                 color: #666;
-                border-color: #333;
-            }
-            
-            QLineEdit, QComboBox {
-                background-color: #404040;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 6px;
-                color: #ffffff;
-            }
-            
-            QLineEdit:focus, QComboBox:focus {
-                border-color: #0078d4;
-            }
-            
-            QSpinBox {
-                background-color: #404040;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 4px;
-                color: #ffffff;
+                border-color: #555;
             }
             
             QCheckBox {
                 color: #ffffff;
                 spacing: 8px;
+                font-size: 11px;
             }
             
             QCheckBox::indicator {
@@ -452,75 +212,57 @@ class AnimationLibraryMainWindow(QMainWindow):
                 height: 16px;
                 border: 2px solid #555;
                 border-radius: 3px;
-                background-color: #404040;
+                background-color: #4a4a4a;
             }
             
             QCheckBox::indicator:checked {
-                background-color: #0078d4;
-                border-color: #0078d4;
+                background-color: #4a90e2;
+                border-color: #4a90e2;
             }
             
-            QCheckBox::indicator:checked:hover {
-                background-color: #106ebe;
-            }
-            
-            QCheckBox::indicator:hover {
-                border-color: #0078d4;
-            }
-            
-            #infoLabel {
-                color: #cccccc;
-                font-size: 11px;
-                padding: 2px;
-            }
-            
-            QScrollArea {
+            QSpinBox {
+                background-color: #4a4a4a;
                 border: 1px solid #555;
                 border-radius: 4px;
-            }
-            
-            QStatusBar {
-                background-color: #353535;
-                border-top: 1px solid #555;
-                color: #cccccc;
+                padding: 4px 8px;
+                color: #ffffff;
             }
         """
     
-    # Connection handling
+    # Connection handling methods
     def toggle_blender_connection(self):
         """Toggle Blender connection"""
+        toolbar = self.layout_manager.get_widget('toolbar')
+        
         if self.blender_connection.is_connected():
             self.blender_connection.disconnect_from_blender()
         else:
-            self.connect_btn.setEnabled(False)
-            self.connect_btn.setText("Connecting...")
+            toolbar.set_connecting(True)
             success = self.blender_connection.connect_to_blender()
             
             if not success:
-                self.connect_btn.setEnabled(True)
-                self.connect_btn.setText("Connect to Blender")
+                toolbar.set_connecting(False)
     
     def on_blender_connected(self):
         """Handle successful Blender connection"""
+        toolbar = self.layout_manager.get_widget('toolbar')
+        
         self.connection_status.setText("Connected")
         self.connection_status.setStyleSheet("color: #51cf66; font-weight: bold; padding: 4px;")
-        self.connection_indicator.setStyleSheet("color: #51cf66; font-size: 16px;")
         
-        self.connect_btn.setText("Disconnect")
-        self.connect_btn.setEnabled(True)
-        self.extract_btn.setEnabled(True)
+        toolbar.set_connected(True)
+        toolbar.set_connecting(False)
         
         self.status_bar.showMessage("Connected to Blender successfully", 3000)
     
     def on_blender_disconnected(self):
         """Handle Blender disconnection"""
+        toolbar = self.layout_manager.get_widget('toolbar')
+        
         self.connection_status.setText("Disconnected")
         self.connection_status.setStyleSheet("color: #ff6b6b; font-weight: bold; padding: 4px;")
-        self.connection_indicator.setStyleSheet("color: #ff6b6b; font-size: 16px;")
         
-        self.connect_btn.setText("Connect to Blender")
-        self.connect_btn.setEnabled(True)
-        self.extract_btn.setEnabled(False)
+        toolbar.set_connected(False)
         
         self.status_bar.showMessage("Disconnected from Blender", 3000)
     
@@ -529,19 +271,20 @@ class AnimationLibraryMainWindow(QMainWindow):
         QMessageBox.warning(self, "Connection Error", f"Failed to connect to Blender:\n{error_msg}")
         self.on_blender_disconnected()
     
-    # Data handling
+    # Data handling methods
     def on_scene_info_received(self, scene_data: dict):
         """Handle scene information from Blender"""
         self.available_armatures = scene_data.get('armatures', [])
         
-        # Update current rig type display if we have an armature selected
         if self.current_armature:
             current_rig_type = self.detect_current_rig_type()
             from core.animation_data import RigTypeDetector
             rig_emoji = RigTypeDetector.get_rig_emoji(current_rig_type)
             rig_color = RigTypeDetector.get_rig_color(current_rig_type)
-            self.current_rig_label.setText(f"Current Rig: {rig_emoji} {current_rig_type}")
-            self.current_rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold;")
+            
+            current_rig_label = self.layout_manager.get_widget('current_rig_label')
+            current_rig_label.setText(f"Current Rig: {rig_emoji} {current_rig_type}")
+            current_rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold;")
     
     def on_selection_updated(self, selection_data: dict):
         """Handle selection update from Blender"""
@@ -552,21 +295,27 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.current_armature = armature
         self.current_selection = bones
         
+        # Get UI widgets
+        armature_label = self.layout_manager.get_widget('armature_label')
+        bones_label = self.layout_manager.get_widget('bones_label')
+        frame_label = self.layout_manager.get_widget('frame_label')
+        selected_bones_info = self.layout_manager.get_widget('selected_bones_info')
+        current_rig_label = self.layout_manager.get_widget('current_rig_label')
+        
         # Update UI
         if armature:
-            self.armature_label.setText(f"Armature: {armature}")
+            armature_label.setText(f"Armature: {armature}")
             
-            # Update current rig type display
             current_rig_type = self.detect_current_rig_type()
             from core.animation_data import RigTypeDetector
             rig_emoji = RigTypeDetector.get_rig_emoji(current_rig_type)
             rig_color = RigTypeDetector.get_rig_color(current_rig_type)
-            self.current_rig_label.setText(f"Current Rig: {rig_emoji} {current_rig_type}")
-            self.current_rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold;")
+            current_rig_label.setText(f"Current Rig: {rig_emoji} {current_rig_type}")
+            current_rig_label.setStyleSheet(f"color: {rig_color}; font-weight: bold;")
         else:
-            self.armature_label.setText("No armature selected")
-            self.current_rig_label.setText("Current Rig: Not detected")
-            self.current_rig_label.setStyleSheet("color: #888;")
+            armature_label.setText("No armature selected")
+            current_rig_label.setText("Current Rig: Not detected")
+            current_rig_label.setStyleSheet("color: #888;")
         
         # Update bone selection display
         if bones:
@@ -574,37 +323,23 @@ class AnimationLibraryMainWindow(QMainWindow):
                 bone_text = ", ".join(bones)
             else:
                 bone_text = f"{', '.join(bones[:3])} +{len(bones)-3} more"
-            self.bones_label.setText(f"Bones: {bone_text}")
+            bones_label.setText(f"Bones: {bone_text}")
             
-            # Update selected bones info for apply options
-            self.selected_bones_info.setText(f"Selected: {len(bones)} bones ({', '.join(bones[:2])}{'...' if len(bones) > 2 else ''})")
-            self.selected_bones_info.setStyleSheet("font-size: 9px; color: #51cf66; padding: 2px 8px;")
+            selected_bones_info.setText(f"Selected: {len(bones)} bones ({', '.join(bones[:2])}{'...' if len(bones) > 2 else ''})")
+            selected_bones_info.setStyleSheet("font-size: 9px; color: #51cf66; padding: 2px 8px;")
         else:
-            self.bones_label.setText("No bones selected")
-            self.selected_bones_info.setText("No bones selected")
-            self.selected_bones_info.setStyleSheet("font-size: 9px; color: #888; padding: 2px 8px;")
+            bones_label.setText("No bones selected")
+            selected_bones_info.setText("No bones selected")
+            selected_bones_info.setStyleSheet("font-size: 9px; color: #888; padding: 2px 8px;")
         
-        self.frame_label.setText(f"Frame: {frame}")
-        
-        # Update selected bones only checkbox state hint
-        if bones and self.selected_bones_only_cb.isChecked():
-            self.selected_bones_only_cb.setToolTip(f"Apply animation to {len(bones)} selected bones: {', '.join(bones[:3])}{'...' if len(bones) > 3 else ''}")
-        else:
-            self.selected_bones_only_cb.setToolTip("Only apply animation to currently selected bones in Blender")
+        frame_label.setText(f"Frame: {frame}")
     
     def on_animation_extracted(self, animation_data: dict):
         """Handle animation extraction from Blender"""
         try:
-            # Store current animation data for reference
-            self.current_animation_data = animation_data
-            
-            # Create animation metadata
             metadata = AnimationMetadata.from_blender_data(animation_data)
-            
-            # Add to library
             self.library_manager.add_animation(metadata)
             
-            # Refresh display
             self.refresh_library_display()
             self.update_tag_filter()
             
@@ -617,15 +352,7 @@ class AnimationLibraryMainWindow(QMainWindow):
     def on_animation_applied(self, result_data: dict):
         """Handle animation application result"""
         action_name = result_data.get('action_name', 'Unknown')
-        bones_applied = result_data.get('bones_applied', 0)
-        keyframes_applied = result_data.get('keyframes_applied', 0)
-        
-        self.status_bar.showMessage(
-            f"Applied '{action_name}': {bones_applied} bones, {keyframes_applied} keyframes",
-            5000
-        )
-        
-        # Hide progress bar
+        self.status_bar.showMessage(f"Applied '{action_name}' successfully", 3000)
         self.progress_bar.setVisible(False)
     
     def on_blender_error(self, error_msg: str):
@@ -633,7 +360,45 @@ class AnimationLibraryMainWindow(QMainWindow):
         QMessageBox.warning(self, "Blender Error", error_msg)
         self.progress_bar.setVisible(False)
     
-    # Animation library operations
+    # UI event handlers
+    def on_folder_selected(self, filter_str: str):
+        """Handle folder selection"""
+        self.current_filter = filter_str
+        self.refresh_library_display()
+        print(f"📁 Folder selected: {filter_str}")
+    
+    def on_animation_selected(self, animation_data: dict):
+        """Handle animation selection"""
+        try:
+            animation_id = animation_data.get('id')
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            
+            if animation_id:
+                animation = self.library_manager.get_animation(animation_id)
+                if animation:
+                    self.current_animation = animation
+                    metadata_panel.show_animation_details(animation)
+                    print(f"🎬 Animation selected: {animation.name}")
+                else:
+                    metadata_panel.show_no_selection()
+            else:
+                metadata_panel.show_no_selection()
+        except Exception as e:
+            logger.error(f"Error showing animation details: {e}")
+    
+    def on_search_changed(self, search_text: str):
+        """Handle search text change"""
+        self.refresh_library_display()
+    
+    def on_tag_filter_changed(self, tag: str):
+        """Handle tag filter change"""
+        self.refresh_library_display()
+    
+    def on_rig_filter_changed(self, rig_type: str):
+        """Handle rig filter change"""
+        self.refresh_library_display()
+    
+    # Animation operations
     def extract_animation(self):
         """Extract animation from Blender"""
         if not self.blender_connection.is_connected():
@@ -644,18 +409,16 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "No Armature", "Please select an armature in Blender")
             return
         
-        # Show progress
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.progress_bar.setRange(0, 0)
         
-        # Request extraction
         success = self.blender_connection.extract_animation()
         if not success:
             self.progress_bar.setVisible(False)
             QMessageBox.warning(self, "Extraction Failed", "Failed to send extraction request to Blender")
     
     def apply_animation(self, animation_data: dict):
-        """Apply animation to current armature with rig compatibility check"""
+        """Apply animation to current armature"""
         if not self.blender_connection.is_connected():
             QMessageBox.warning(self, "Not Connected", "Please connect to Blender first")
             return
@@ -664,121 +427,40 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "No Armature", "Please select an armature in Blender")
             return
         
-        # Check if selected bones only is enabled but no bones are selected
-        if self.selected_bones_only_cb.isChecked() and not self.current_selection:
-            reply = QMessageBox.question(
-                self, "No Bones Selected",
-                "You have 'Apply to selected bones only' enabled but no bones are currently selected.\n\n"
-                "Do you want to apply to all bones instead?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return
-            # If Yes, we'll apply to all bones by setting selected_bones_only to False
-            apply_to_selected_only = False
-        else:
-            apply_to_selected_only = self.selected_bones_only_cb.isChecked()
+        # Get apply options from UI
+        selected_bones_only_cb = self.layout_manager.get_widget('selected_bones_only_cb')
+        frame_offset_spin = self.layout_manager.get_widget('frame_offset_spin')
+        location_cb = self.layout_manager.get_widget('location_cb')
+        rotation_cb = self.layout_manager.get_widget('rotation_cb')
+        scale_cb = self.layout_manager.get_widget('scale_cb')
         
-        # Check rig compatibility
-        animation_rig_type = animation_data.get('rig_type', 'Unknown')
-        current_rig_type = self.detect_current_rig_type()
-        
-        # Import RigTypeDetector
-        from core.animation_data import RigTypeDetector
-        
-        if not RigTypeDetector.are_rigs_compatible(animation_rig_type, current_rig_type):
-            rig_emoji_anim = RigTypeDetector.get_rig_emoji(animation_rig_type)
-            rig_emoji_current = RigTypeDetector.get_rig_emoji(current_rig_type)
-            
-            reply = QMessageBox.question(
-                self, "Rig Type Mismatch",
-                f"⚠️ Rig Compatibility Warning\n\n"
-                f"Animation Rig: {rig_emoji_anim} {animation_rig_type}\n"
-                f"Current Rig: {rig_emoji_current} {current_rig_type}\n\n"
-                f"This animation was created for a {animation_rig_type} rig, "
-                f"but your current rig appears to be {current_rig_type}.\n\n"
-                f"The animation may not apply correctly or may cause errors.\n"
-                f"Do you want to continue anyway?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return
-        
-        # Show confirmation for selected bones application
-        if apply_to_selected_only and self.current_selection:
-            bone_list = ", ".join(self.current_selection[:3])
-            if len(self.current_selection) > 3:
-                bone_list += f" +{len(self.current_selection)-3} more"
-            
-            reply = QMessageBox.question(
-                self, "Apply to Selected Bones",
-                f"Apply animation '{animation_data['name']}' to selected bones only?\n\n"
-                f"Target bones: {bone_list}\n"
-                f"Total: {len(self.current_selection)} bones",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            if reply == QMessageBox.No:
-                return
-        
-        # Get apply options with user settings
         apply_options = ApplyOptions(
-            selected_bones_only=apply_to_selected_only,
-            frame_offset=self.frame_offset_spin.value(),
+            selected_bones_only=selected_bones_only_cb.isChecked(),
+            frame_offset=frame_offset_spin.value(),
             channels={
-                'location': self.location_cb.isChecked(),
-                'rotation': self.rotation_cb.isChecked(),
-                'scale': self.scale_cb.isChecked()
+                'location': location_cb.isChecked(),
+                'rotation': rotation_cb.isChecked(),
+                'scale': scale_cb.isChecked()
             },
-            bone_mapping={}  # No bone mapping needed for same rig types
+            bone_mapping={}
         )
         
-        # Show progress
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
         
-        # Send apply request with F-curve data
-        # Make sure we pass the original blender data that contains F-curves
-        animation_to_send = animation_data.copy()
-        if '_original_blender_data' in animation_data:
-            # Merge the F-curve data into the main animation data
-            original_data = animation_data['_original_blender_data']
-            if 'bone_data' in original_data:
-                animation_to_send['bone_data'] = original_data['bone_data']
-        
-        success = self.blender_connection.apply_animation(animation_to_send, apply_options)
+        success = self.blender_connection.apply_animation(animation_data, apply_options)
         if not success:
             self.progress_bar.setVisible(False)
             QMessageBox.warning(self, "Apply Failed", "Failed to send apply request to Blender")
         else:
-            apply_mode = "selected bones" if apply_to_selected_only else "all bones"
-            self.status_bar.showMessage(f"Applying '{animation_data['name']}' to {apply_mode}...", 2000)
-    
-    def detect_current_rig_type(self) -> str:
-        """Detect the rig type of the currently selected armature"""
-        if not self.current_armature:
-            return "Unknown"
-        
-        # Get bone names from available armatures info
-        current_bones = []
-        for armature_data in self.available_armatures:
-            if armature_data['name'] == self.current_armature:
-                current_bones = armature_data['bones']
-                break
-        
-        # Import RigTypeDetector
-        from core.animation_data import RigTypeDetector
-        
-        return RigTypeDetector.detect_rig_type(self.current_armature, current_bones)
+            print(f"⚡ Applying animation: {animation_data['name']}")
     
     def preview_animation(self, animation_data: dict):
-        """Preview animation (placeholder for future implementation)"""
+        """Preview animation (placeholder)"""
         QMessageBox.information(self, "Preview", f"Preview for '{animation_data['name']}' would be shown here")
     
     def edit_animation(self, animation_data: dict):
-        """Edit animation metadata (placeholder for future implementation)"""
+        """Edit animation metadata (placeholder)"""
         QMessageBox.information(self, "Edit", f"Edit dialog for '{animation_data['name']}' would be shown here")
     
     def delete_animation(self, animation_data: dict):
@@ -795,6 +477,10 @@ class AnimationLibraryMainWindow(QMainWindow):
             self.library_manager.remove_animation(animation_id)
             self.refresh_library_display()
             self.update_tag_filter()
+            
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            metadata_panel.show_no_selection()
+            
             self.status_bar.showMessage(f"Deleted animation '{animation_data['name']}'", 3000)
     
     # Library management
@@ -807,6 +493,7 @@ class AnimationLibraryMainWindow(QMainWindow):
             
             count = len(self.library_manager.get_all_animations())
             self.status_bar.showMessage(f"Loaded {count} animations from library", 3000)
+            print(f"📚 Loaded {count} animations from library")
             
         except Exception as e:
             logger.error(f"Failed to load library: {e}")
@@ -814,14 +501,11 @@ class AnimationLibraryMainWindow(QMainWindow):
     
     def refresh_library_display(self):
         """Refresh the animation library display"""
-        # Get filtered animations
         animations = self.get_filtered_animations()
+        animation_grid = self.layout_manager.get_widget('animation_grid')
         
-        # Clear existing cards
-        self.animation_grid.clear_cards()
-        self.animation_cards.clear()
+        animation_grid.clear_cards()
         
-        # Create new cards
         for animation_data in animations:
             card = AnimationCard(animation_data.to_dict())
             
@@ -831,18 +515,34 @@ class AnimationLibraryMainWindow(QMainWindow):
             card.edit_requested.connect(self.edit_animation)
             card.delete_requested.connect(self.delete_animation)
             
-            self.animation_grid.add_card(card)
-            self.animation_cards.append(card)
+            animation_grid.add_card(card)
         
-        # Update statistics
         self.update_statistics()
+        print(f"🔄 Refreshed display: {len(animations)} animations shown")
     
     def get_filtered_animations(self) -> list:
-        """Get animations filtered by current search criteria"""
+        """Get animations filtered by current criteria"""
         all_animations = self.library_manager.get_all_animations()
+        toolbar = self.layout_manager.get_widget('toolbar')
         
-        # Filter by search text
-        search_text = self.search_box.text().lower()
+        # Apply folder filter
+        if self.current_filter != "all":
+            if self.current_filter.startswith("rig_type:"):
+                rig_type = self.current_filter.split(":", 1)[1]
+                all_animations = [anim for anim in all_animations if anim.rig_type == rig_type]
+            elif self.current_filter.startswith("storage:"):
+                storage_method = self.current_filter.split(":", 1)[1]
+                all_animations = [anim for anim in all_animations if anim.storage_method == storage_method]
+            elif self.current_filter.startswith("tag:"):
+                tag = self.current_filter.split(":", 1)[1]
+                all_animations = [anim for anim in all_animations if tag in anim.tags]
+            elif self.current_filter.startswith("category:"):
+                category = self.current_filter.split(":", 1)[1].lower()
+                all_animations = [anim for anim in all_animations 
+                                if any(category in tag.lower() for tag in anim.tags)]
+        
+        # Apply search filter
+        search_text = toolbar.search_box.text().lower()
         if search_text:
             all_animations = [
                 anim for anim in all_animations
@@ -851,16 +551,16 @@ class AnimationLibraryMainWindow(QMainWindow):
                     any(search_text in tag.lower() for tag in anim.tags))
             ]
         
-        # Filter by tag
-        selected_tag = self.tag_filter.currentText()
+        # Apply tag filter
+        selected_tag = toolbar.tag_filter.currentText()
         if selected_tag != "All Tags":
             all_animations = [
                 anim for anim in all_animations
                 if selected_tag.lower() in [tag.lower() for tag in anim.tags]
             ]
         
-        # Filter by rig type
-        selected_rig = self.rig_filter.currentText()
+        # Apply rig filter
+        selected_rig = toolbar.rig_filter.currentText()
         if selected_rig != "All Rigs":
             all_animations = [
                 anim for anim in all_animations
@@ -869,29 +569,15 @@ class AnimationLibraryMainWindow(QMainWindow):
         
         return all_animations
     
-    def filter_animations(self):
-        """Apply current filters to animation display"""
-        self.refresh_library_display()
-    
     def update_tag_filter(self):
         """Update the tag filter dropdown"""
-        current_tag = self.tag_filter.currentText()
-        self.tag_filter.clear()
-        self.tag_filter.addItem("All Tags")
-        
         # Collect all unique tags
         all_tags = set()
         for animation in self.library_manager.get_all_animations():
             all_tags.update(animation.tags)
         
-        # Add tags to filter
-        for tag in sorted(all_tags):
-            self.tag_filter.addItem(tag)
-        
-        # Restore previous selection if it exists
-        tag_index = self.tag_filter.findText(current_tag)
-        if tag_index >= 0:
-            self.tag_filter.setCurrentIndex(tag_index)
+        toolbar = self.layout_manager.get_widget('toolbar')
+        toolbar.update_tag_filter(list(all_tags))
     
     def update_statistics(self):
         """Update library statistics display"""
@@ -901,18 +587,46 @@ class AnimationLibraryMainWindow(QMainWindow):
         total_count = len(all_animations)
         filtered_count = len(filtered_animations)
         
+        # Count by storage method
+        blend_count = len([a for a in filtered_animations if a.is_blend_file_storage()])
+        legacy_count = len([a for a in filtered_animations if a.is_legacy_storage()])
+        
         if total_count == filtered_count:
-            self.stats_label.setText(f"{total_count} animations")
+            stats_text = f"{total_count} animations"
         else:
-            self.stats_label.setText(f"{filtered_count} of {total_count} animations")
+            stats_text = f"{filtered_count} of {total_count} animations"
+        
+        if blend_count > 0 or legacy_count > 0:
+            stats_text += f" (⚡{blend_count} instant, ⏳{legacy_count} legacy)"
+        
+        toolbar = self.layout_manager.get_widget('toolbar')
+        toolbar.update_stats(stats_text)
+    
+    def detect_current_rig_type(self) -> str:
+        """Detect the rig type of the currently selected armature"""
+        if not self.current_armature:
+            return "Unknown"
+        
+        current_bones = []
+        for armature_data in self.available_armatures:
+            if armature_data['name'] == self.current_armature:
+                current_bones = armature_data['bones']
+                break
+        
+        from core.animation_data import RigTypeDetector
+        return RigTypeDetector.detect_rig_type(self.current_armature, current_bones)
+    
+    def refresh_selection_info(self):
+        """Refresh selection info periodically"""
+        if self.blender_connection.is_connected():
+            # Could request updated selection info here
+            pass
     
     def closeEvent(self, event):
         """Handle application close"""
-        # Disconnect from Blender
         if self.blender_connection.is_connected():
             self.blender_connection.disconnect_from_blender()
         
-        # Save library
         try:
             self.library_manager.save_library()
         except Exception as e:
@@ -923,16 +637,14 @@ class AnimationLibraryMainWindow(QMainWindow):
 
 def main():
     """Main application entry point"""
-    # Create application
+    print("🎬 Starting Animation Library - Modular Studio Layout...")
+    
     app = QApplication(sys.argv)
     
     # Set application properties
-    app.setApplicationName("Animation Library")
-    app.setApplicationVersion("2.0")
+    app.setApplicationName("Animation Library Professional")
+    app.setApplicationVersion("2.1")
     app.setOrganizationName("Animation Studio")
-    
-    # Set application icon (if available)
-    # app.setWindowIcon(QIcon("path/to/icon.png"))
     
     # Create and show main window
     window = AnimationLibraryMainWindow()
@@ -944,6 +656,8 @@ def main():
     x = (screen.width() - window_geo.width()) // 2
     y = (screen.height() - window_geo.height()) // 2
     window.move(x, y)
+    
+    print("✅ Modular Animation Library started successfully!")
     
     # Run application
     try:
