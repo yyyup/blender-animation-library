@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import logging
 
-from core.animation_data import AnimationMetadata, BlendFileReference, AnimationStorageDetector
+from .animation_data import AnimationMetadata, BlendFileReference, AnimationStorageDetector
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,8 @@ class AnimationLibraryManager:
         
         # In-memory storage
         self.animations: Dict[str, AnimationMetadata] = {}
+        self.folder_structure = self._load_folder_structure()
+        
         self.library_metadata = {
             "version": "2.1",  # Updated for .blend file support
             "created": datetime.now().isoformat(),
@@ -54,6 +56,197 @@ class AnimationLibraryManager:
         self.thumbnails_folder.mkdir(exist_ok=True)
         
         logger.info(f"📁 Library directories initialized: {self.library_path}")
+    
+    def _load_folder_structure(self) -> Dict[str, Any]:
+        """Load folder structure from disk"""
+        if self.folders_file and self.folders_file.exists():
+            try:
+                with open(self.folders_file, 'r') as f:
+                    structure = json.load(f)
+                    # Ensure Root folder exists in loaded structure
+                    if "Custom Folders" in structure and "children" in structure["Custom Folders"]:
+                        if "📁 Root" not in structure["Custom Folders"]["children"]:
+                            structure["Custom Folders"]["children"]["📁 Root"] = {
+                                "type": "folder", 
+                                "filter": "folder:Root", 
+                                "count": 0
+                            }
+                    return structure
+            except Exception as e:
+                logger.warning(f"Failed to load folder structure: {e}")
+        
+        # Minimal default folder structure with Root folder visible
+        return {
+            "Custom Folders": {
+                "type": "category", 
+                "children": {
+                    "📁 Root": {"type": "folder", "filter": "folder:Root", "count": 0}
+                }
+            }
+        }
+    
+    def _save_folder_structure(self):
+        """Save folder structure to disk"""
+        try:
+            with open(self.folders_file, 'w') as f:
+                json.dump(self.folder_structure, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save folder structure: {e}")
+    
+    def create_folder(self, folder_name: str, parent_path: str = "Root") -> bool:
+        """Create a new folder in the structure"""
+        try:
+            # Navigate to parent folder
+            current = self.folder_structure
+            if parent_path != "Root":
+                path_parts = parent_path.split("/")
+                for part in path_parts:
+                    if part in current and "children" in current[part]:
+                        current = current[part]["children"]
+                    else:
+                        logger.error(f"Parent path not found: {parent_path}")
+                        return False
+            
+            # For custom folders, add to Custom Folders section
+            if "Custom Folders" not in current:
+                current["Custom Folders"] = {"type": "category", "children": {}}
+            
+            custom_folders = current["Custom Folders"]["children"]
+            folder_key = f"📁 {folder_name}"
+            
+            # Create new folder
+            if folder_key not in custom_folders:
+                custom_folders[folder_key] = {
+                    "type": "folder", 
+                    "filter": f"folder:{folder_name}",
+                    "count": 0
+                }
+                self._save_folder_structure()
+                logger.info(f"📁 Created folder: {folder_name}")
+                return True
+            else:
+                logger.warning(f"Folder already exists: {folder_name}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to create folder: {e}")
+            return False
+    
+    def delete_folder(self, folder_path: str) -> bool:
+        """Delete a folder (moves animations to Root)"""
+        try:
+            print(f"📁 LIBRARY: Deleting folder '{folder_path}'")
+            
+            # Don't allow deleting system folders
+            if folder_path in ["Root", "All Animations", "Custom Folders"]:
+                logger.warning(f"Cannot delete system folder: {folder_path}")
+                return False
+            
+            # Move animations to Root
+            animations_in_folder = []
+            animations_moved = 0
+            
+            for anim_id, animation in self.animations.items():
+                current_folder = getattr(animation, 'folder_path', 'Root')
+                if current_folder == folder_path:
+                    animations_in_folder.append((anim_id, animation))
+            
+            print(f"📁 LIBRARY: Found {len(animations_in_folder)} animations in folder '{folder_path}'")
+            
+            # Move all animations to Root
+            for anim_id, animation in animations_in_folder:
+                old_folder = getattr(animation, 'folder_path', 'Root')
+                animation.folder_path = "Root"
+                animations_moved += 1
+                print(f"📁 LIBRARY: Moved animation {animation.name}: '{old_folder}' → 'Root'")
+            
+            # Remove folder from structure - try different possible folder keys
+            folder_removed = False
+            if "Custom Folders" in self.folder_structure and "children" in self.folder_structure["Custom Folders"]:
+                custom_folders = self.folder_structure["Custom Folders"]["children"]
+                
+                # Try different possible keys
+                possible_keys = [
+                    f"📁 {folder_path}",
+                    folder_path,
+                    f"{folder_path}"
+                ]
+                
+                print(f"📁 LIBRARY: Looking for folder in structure...")
+                print(f"📁 LIBRARY: Available folder keys: {list(custom_folders.keys())}")
+                
+                for key in possible_keys:
+                    if key in custom_folders:
+                        del custom_folders[key]
+                        folder_removed = True
+                        print(f"📁 LIBRARY: Successfully removed folder key '{key}' from structure")
+                        break
+                
+                if not folder_removed:
+                    print(f"❌ LIBRARY: Could not find folder '{folder_path}' in structure with any key")
+            
+            # Save changes
+            self._save_folder_structure()
+            self.save_library()
+            
+            if folder_removed:
+                logger.info(f"🗑️ Deleted folder: {folder_path}, moved {animations_moved} animations to Root")
+                return True
+            else:
+                logger.warning(f"⚠️ Moved animations but could not remove folder from structure: {folder_path}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ LIBRARY: Failed to delete folder {folder_path}: {e}")
+            import traceback
+            traceback.print_exc()
+            logger.error(f"Failed to delete folder: {e}")
+            return False
+    
+    def get_folder_structure(self) -> Dict[str, Any]:
+        """Get the complete folder structure"""
+        # Update dynamic folders with current counts
+        structure = self.folder_structure.copy()
+        
+        # Update counts for filter folders
+        self._update_folder_counts(structure)
+        
+        return structure
+    
+    def _update_folder_counts(self, structure: Dict[str, Any]):
+        """Update animation counts for filter folders"""
+        all_animations = self.get_all_animations()
+        
+        for folder_name, folder_data in structure.items():
+            if folder_data.get("type") == "filter":
+                # Count animations matching this filter
+                filter_str = folder_data.get("filter", "")
+                count = self._count_animations_for_filter(all_animations, filter_str)
+                folder_data["count"] = count
+            elif "children" in folder_data:
+                self._update_folder_counts(folder_data["children"])
+    
+    def _count_animations_for_filter(self, animations: List[AnimationMetadata], filter_str: str) -> int:
+        """Count animations matching a filter string"""
+        if not filter_str:
+            return len(animations)
+        
+        count = 0
+        for anim in animations:
+            if filter_str.startswith("rig_type:"):
+                rig_type = filter_str.split(":", 1)[1]
+                if anim.rig_type == rig_type:
+                    count += 1
+            elif filter_str.startswith("storage:"):
+                storage_method = filter_str.split(":", 1)[1]
+                if anim.storage_method == storage_method:
+                    count += 1
+            elif filter_str.startswith("tag:"):
+                tag = filter_str.split(":", 1)[1]
+                if tag in anim.tags:
+                    count += 1
+        
+        return count
     
     def add_animation(self, animation: AnimationMetadata, folder_path: str = "Root") -> bool:
         """Add animation to library with folder organization"""
@@ -163,7 +356,15 @@ class AnimationLibraryManager:
         try:
             if animation_id in self.animations:
                 old_folder = getattr(self.animations[animation_id], 'folder_path', 'Root')
+                print(f"📁 LIBRARY: Moving animation {animation_id}")
+                print(f"📁 LIBRARY: '{old_folder}' → '{new_folder_path}'")
+                
+                # Update the folder path
                 self.animations[animation_id].folder_path = new_folder_path
+                
+                # Verify the change
+                updated_folder = getattr(self.animations[animation_id], 'folder_path', 'Root')
+                print(f"📁 LIBRARY: Folder path updated to: '{updated_folder}'")
                 
                 # Save changes
                 self.save_library()
@@ -171,10 +372,12 @@ class AnimationLibraryManager:
                 logger.info(f"📁 Moved animation {animation_id} from '{old_folder}' to '{new_folder_path}'")
                 return True
             else:
+                print(f"❌ LIBRARY: Animation {animation_id} not found")
                 logger.warning(f"Animation {animation_id} not found")
                 return False
                 
         except Exception as e:
+            print(f"❌ LIBRARY: Failed to move animation {animation_id}: {e}")
             logger.error(f"Failed to move animation {animation_id}: {e}")
             return False
     
@@ -232,16 +435,16 @@ class AnimationLibraryManager:
                 if anim.rig_type.lower() == rig_type.lower()]
     
     def filter_by_storage_method(self, storage_method: str) -> List[AnimationMetadata]:
-        """NEW: Filter animations by storage method"""
+        """Filter animations by storage method"""
         return [anim for anim in self.get_all_animations() 
                 if anim.storage_method == storage_method]
     
     def get_blend_file_animations(self) -> List[AnimationMetadata]:
-        """NEW: Get only .blend file animations (fast ones)"""
+        """Get only .blend file animations (fast ones)"""
         return self.filter_by_storage_method("blend_file")
     
     def get_legacy_animations(self) -> List[AnimationMetadata]:
-        """NEW: Get only legacy JSON animations (slow ones)"""
+        """Get only legacy JSON animations (slow ones)"""
         return self.filter_by_storage_method("json_keyframes")
     
     def get_statistics(self) -> Dict[str, Any]:
@@ -337,6 +540,9 @@ class AnimationLibraryManager:
             # Atomic replace
             temp_file.replace(self.metadata_file)
             
+            # Save folder structure
+            self._save_folder_structure()
+            
             blend_count = len(self.get_blend_file_animations())
             legacy_count = len(self.get_legacy_animations())
             logger.info(f"💾 Saved library: {blend_count} .blend + {legacy_count} JSON animations")
@@ -382,6 +588,9 @@ class AnimationLibraryManager:
                 except Exception as e:
                     logger.warning(f"Failed to load animation {anim_id}: {e}")
             
+            # Load folder structure
+            self.folder_structure = self._load_folder_structure()
+            
             logger.info(f"📚 Loaded library: {blend_count} .blend + {legacy_count} JSON animations")
             return True
             
@@ -389,70 +598,8 @@ class AnimationLibraryManager:
             logger.error(f"Failed to load library: {e}")
             return False
     
-    def migrate_animation_to_blend(self, animation_id: str) -> bool:
-        """NEW: Migrate a JSON animation to .blend file storage"""
-        animation = self.get_animation(animation_id)
-        if not animation:
-            logger.error(f"Animation {animation_id} not found")
-            return False
-        
-        if animation.is_blend_file_storage():
-            logger.info(f"Animation {animation.name} already uses .blend file storage")
-            return True
-        
-        if not animation.is_legacy_storage():
-            logger.error(f"Animation {animation.name} has unknown storage method")
-            return False
-        
-        try:
-            # This would require Blender integration to recreate and save the action
-            # For now, mark as needing migration
-            logger.info(f"🔄 Animation {animation.name} marked for migration to .blend file")
-            # Implementation would involve:
-            # 1. Recreate action in Blender from JSON data
-            # 2. Save action to .blend file
-            # 3. Update animation metadata
-            # 4. Remove JSON data
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to migrate animation {animation_id}: {e}")
-            return False
-    
-    def batch_migrate_to_blend(self) -> Dict[str, Any]:
-        """NEW: Migrate all JSON animations to .blend files"""
-        legacy_animations = self.get_legacy_animations()
-        
-        if not legacy_animations:
-            logger.info("No legacy animations to migrate")
-            return {"migrated": 0, "failed": 0, "total": 0}
-        
-        migrated_count = 0
-        failed_count = 0
-        
-        logger.info(f"🔄 Starting batch migration of {len(legacy_animations)} animations...")
-        
-        for animation in legacy_animations:
-            try:
-                if self.migrate_animation_to_blend(animation.id):
-                    migrated_count += 1
-                else:
-                    failed_count += 1
-            except Exception as e:
-                logger.error(f"Migration failed for {animation.name}: {e}")
-                failed_count += 1
-        
-        result = {
-            "migrated": migrated_count,
-            "failed": failed_count,
-            "total": len(legacy_animations)
-        }
-        
-        logger.info(f"🎯 Migration complete: {migrated_count} success, {failed_count} failed")
-        return result
-    
     def cleanup_missing_blend_files(self) -> int:
-        """NEW: Remove animations with missing .blend files"""
+        """Remove animations with missing .blend files"""
         animations_to_remove = []
         
         for anim_id, animation in self.animations.items():
@@ -471,8 +618,43 @@ class AnimationLibraryManager:
         
         return len(animations_to_remove)
     
+    def optimize_library(self) -> Dict[str, Any]:
+        """Optimize library by cleaning up and organizing files"""
+        results = {
+            "orphaned_files_removed": 0,
+            "missing_animations_removed": 0,
+            "space_saved_mb": 0,
+            "operations": []
+        }
+        
+        # Remove animations with missing .blend files
+        missing_count = self.cleanup_missing_blend_files()
+        results["missing_animations_removed"] = missing_count
+        results["operations"].append(f"Removed {missing_count} animations with missing .blend files")
+        
+        # Remove orphaned .blend files
+        validation = self.validate_blend_files()
+        space_saved = 0
+        
+        for orphaned_file in validation["orphaned"]:
+            orphaned_path = self.actions_folder / orphaned_file
+            if orphaned_path.exists():
+                file_size = orphaned_path.stat().st_size
+                orphaned_path.unlink()
+                space_saved += file_size
+                results["orphaned_files_removed"] += 1
+        
+        results["space_saved_mb"] = space_saved / (1024 * 1024)
+        results["operations"].append(f"Removed {results['orphaned_files_removed']} orphaned .blend files")
+        
+        # Save optimized library
+        self.save_library()
+        
+        logger.info(f"🔧 Library optimized: {results}")
+        return results
+    
     def validate_blend_files(self) -> Dict[str, List[str]]:
-        """NEW: Validate all .blend file references"""
+        """Validate all .blend file references"""
         validation_results = {
             "valid": [],
             "missing": [],
@@ -485,7 +667,6 @@ class AnimationLibraryManager:
             animation.update_blend_file_path(self.library_path)
             
             if animation.blend_reference.exists():
-                # Could add corruption check here
                 validation_results["valid"].append(animation.name)
             else:
                 validation_results["missing"].append(animation.name)
@@ -497,172 +678,6 @@ class AnimationLibraryManager:
         validation_results["orphaned"] = list(orphaned_files)
         
         return validation_results
-    
-    def backup_library(self, backup_path: Optional[Path] = None) -> bool:
-        """Create a backup of the library with .blend files"""
-        try:
-            if backup_path is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = self.library_path.parent / f"animation_library_backup_{timestamp}"
-            
-            # Copy entire library directory including .blend files
-            if self.library_path.exists():
-                shutil.copytree(self.library_path, backup_path)
-                
-                # Log backup contents
-                blend_count = len(list((backup_path / 'actions').glob("*.blend")))
-                logger.info(f"📦 Created library backup at: {backup_path}")
-                logger.info(f"   📁 {blend_count} .blend files backed up")
-                return True
-            else:
-                logger.warning("No library to backup")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to create backup: {e}")
-            return False
-    
-    def restore_library(self, backup_path: Path) -> bool:
-        """Restore library from backup including .blend files"""
-        try:
-            if not backup_path.exists():
-                logger.error(f"Backup path does not exist: {backup_path}")
-                return False
-            
-            # Create backup of current library
-            current_backup = self.library_path.with_suffix('.backup')
-            if self.library_path.exists():
-                shutil.move(str(self.library_path), str(current_backup))
-            
-            # Restore from backup
-            shutil.copytree(backup_path, self.library_path)
-            
-            # Reload library
-            self.load_library()
-            
-            # Validate .blend files after restore
-            validation = self.validate_blend_files()
-            logger.info(f"📥 Restored library from backup: {backup_path}")
-            logger.info(f"   ✅ {len(validation['valid'])} valid .blend files")
-            logger.info(f"   ❌ {len(validation['missing'])} missing .blend files")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to restore from backup: {e}")
-            # Try to restore current backup if it exists
-            current_backup = self.library_path.with_suffix('.backup')
-            if current_backup.exists():
-                shutil.move(str(current_backup), str(self.library_path))
-            return False
-    
-    def export_library(self, export_path: Path, include_blend_files: bool = True) -> bool:
-        """Export library to a different location with .blend files"""
-        try:
-            # Ensure export directory exists
-            export_path.mkdir(parents=True, exist_ok=True)
-            
-            # Export metadata
-            export_metadata_file = export_path / 'library_metadata.json'
-            library_data = {
-                "metadata": self.library_metadata,
-                "animations": {
-                    anim_id: anim.to_dict() 
-                    for anim_id, anim in self.animations.items()
-                }
-            }
-            
-            with open(export_metadata_file, 'w') as f:
-                json.dump(library_data, f, indent=2)
-            
-            # Copy files if requested
-            if include_blend_files:
-                # Copy .blend files
-                if self.actions_folder.exists():
-                    export_actions = export_path / 'actions'
-                    shutil.copytree(self.actions_folder, export_actions, dirs_exist_ok=True)
-                
-                # Copy legacy clips if they exist
-                if self.clips_folder.exists():
-                    export_clips = export_path / 'clips'
-                    shutil.copytree(self.clips_folder, export_clips, dirs_exist_ok=True)
-                
-                # Copy thumbnails
-                if self.thumbnails_folder.exists():
-                    export_thumbnails = export_path / 'thumbnails'
-                    shutil.copytree(self.thumbnails_folder, export_thumbnails, dirs_exist_ok=True)
-            
-            blend_count = len(list(self.actions_folder.glob("*.blend"))) if include_blend_files else 0
-            logger.info(f"📤 Exported library to: {export_path}")
-            logger.info(f"   📁 {blend_count} .blend files exported")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to export library: {e}")
-            return False
-    
-    def import_library(self, import_path: Path, merge: bool = True) -> bool:
-        """Import library from a different location with .blend file support"""
-        try:
-            import_metadata_file = import_path / 'library_metadata.json'
-            
-            if not import_metadata_file.exists():
-                logger.error(f"No library metadata found at: {import_path}")
-                return False
-            
-            with open(import_metadata_file, 'r') as f:
-                import_data = json.load(f)
-            
-            animations_data = import_data.get("animations", {})
-            imported_count = 0
-            blend_files_imported = 0
-            
-            for anim_id, anim_data in animations_data.items():
-                try:
-                    animation = AnimationMetadata.from_dict(anim_data)
-                    
-                    # Handle conflicts
-                    if anim_id in self.animations:
-                        if merge:
-                            # Generate new ID for imported animation
-                            original_id = anim_id
-                            counter = 1
-                            while anim_id in self.animations:
-                                anim_id = f"{original_id}_{counter}"
-                                counter += 1
-                            animation.id = anim_id
-                        else:
-                            logger.warning(f"Skipping duplicate animation: {anim_id}")
-                            continue
-                    
-                    # Copy .blend file if it exists
-                    if animation.is_blend_file_storage():
-                        source_blend = import_path / 'actions' / animation.blend_reference.blend_file
-                        target_blend = self.actions_folder / animation.blend_reference.blend_file
-                        
-                        if source_blend.exists():
-                            shutil.copy2(source_blend, target_blend)
-                            blend_files_imported += 1
-                        else:
-                            logger.warning(f"Missing .blend file for {animation.name}: {source_blend}")
-                    
-                    self.animations[anim_id] = animation
-                    imported_count += 1
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to import animation {anim_id}: {e}")
-            
-            # Update metadata and save
-            self._update_library_metadata()
-            self.save_library()
-            
-            logger.info(f"📥 Imported {imported_count} animations from: {import_path}")
-            logger.info(f"   📁 {blend_files_imported} .blend files imported")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to import library: {e}")
-            return False
     
     def _update_library_metadata(self):
         """Update library metadata with storage method counts"""
@@ -708,38 +723,36 @@ class AnimationLibraryManager:
         thumbnail_file = self.thumbnails_folder / f"{animation.id}.png"
         if thumbnail_file.exists():
             thumbnail_file.unlink()
+
+
+class BlendFileValidator:
+    """Utility class for validating .blend files"""
     
-    def get_library_size(self) -> Dict[str, Any]:
-        """Get library size information with .blend file breakdown"""
-        total_size = 0
-        file_count = 0
-        blend_size = 0
-        blend_count = 0
+    @staticmethod
+    def validate_blend_file(file_path: Path) -> Dict[str, Any]:
+        """Validate a .blend file"""
+        if not file_path.exists():
+            return {"valid": False, "error": "File does not exist"}
         
-        for file_path in self.library_path.rglob('*'):
-            if file_path.is_file():
-                size = file_path.stat().st_size
-                total_size += size
-                file_count += 1
-                
-                if file_path.suffix == '.blend' and file_path.parent.name == 'actions':
-                    blend_size += size
-                    blend_count += 1
+        if file_path.suffix != '.blend':
+            return {"valid": False, "error": "Not a .blend file"}
         
-        return {
-            "total_size_bytes": total_size,
-            "total_size_mb": total_size / (1024 * 1024),
-            "file_count": file_count,
-            "animation_count": len(self.animations),
-            "blend_file_size_mb": blend_size / (1024 * 1024),
-            "blend_file_count": blend_count,
-            "average_blend_size_mb": (blend_size / blend_count / (1024 * 1024)) if blend_count > 0 else 0,
-            "storage_efficiency": f"{((blend_size / total_size) * 100):.1f}% .blend files" if total_size > 0 else "0%"
-        }
-    
-    def optimize_library(self) -> Dict[str, Any]:
-        """NEW: Optimize library by cleaning up and organizing files"""
-        results = {
-            "orphaned_files_removed": 0,
-            "missing_animations_removed": 0,
-            "space_saved_mb": 0,
+        try:
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                return {"valid": False, "error": "Empty file"}
+            
+            # Basic file header check (Blender files start with "BLENDER")
+            with open(file_path, 'rb') as f:
+                header = f.read(7)
+                if header != b'BLENDER':
+                    return {"valid": False, "error": "Invalid .blend file header"}
+            
+            return {
+                "valid": True,
+                "size_mb": file_size / (1024 * 1024),
+                "modified": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+            }
+            
+        except Exception as e:
+            return {"valid": False, "error": str(e)}

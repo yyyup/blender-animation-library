@@ -1,79 +1,100 @@
 """
 Folder Tree Widget
-Real folder management like Maya Studio Library - create, rename, organize
+Professional hierarchical folder navigation for animation library
 """
 
-from PySide6.QtWidgets import (
-    QTreeWidget, QTreeWidgetItem, QMenu, QInputDialog, QMessageBox,
-    QApplication
-)
-from PySide6.QtCore import Qt, Signal, QMimeData
-from PySide6.QtGui import QAction, QDrag
-import json
+import sys
 from pathlib import Path
 
+# Add core modules to path
+gui_dir = Path(__file__).parent.parent.parent
+if str(gui_dir) not in sys.path:
+    sys.path.insert(0, str(gui_dir))
 
-class FolderTreeWidget(QTreeWidget):
-    """Real folder management like Maya Studio Library"""
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, 
+    QHBoxLayout, QPushButton, QInputDialog, QMessageBox,
+    QMenu, QHeaderView
+)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QAction, QIcon, QColor, QDragEnterEvent, QDropEvent
+from typing import Dict, Any, Optional
+
+
+class FolderTreeWidget(QWidget):
+    """Professional folder tree widget for animation library organization"""
     
-    folder_selected = Signal(str)  # Emits folder path
-    folder_created = Signal(str)   # Emits new folder path
-    folder_renamed = Signal(str, str)  # Emits old_path, new_path
-    folder_deleted = Signal(str)   # Emits deleted folder path
-    animation_moved = Signal(str, str, str)  # Emits animation_id, old_folder, new_folder
+    # Signals
+    folder_selected = Signal(str)  # Emits filter string for selected folder
+    animation_moved = Signal(str, str)  # Emits (animation_id, target_folder)
+    folder_created = Signal(str)  # Emits new folder name
+    folder_deleted = Signal(str)  # Emits deleted folder name
     
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # Folder structure storage
-        self.folder_structure = {
-            "folders": {
-                "Root": {
-                    "children": {
-                        "Characters": {"children": {}},
-                        "Facial": {"children": {}},
-                        "Props": {"children": {}},
-                        "Vehicles": {"children": {}}
-                    }
-                }
-            }
-        }
+        self.folder_structure = {}
+        self.current_selection = "all"
         
-        self.current_folder = "Root"
         self.setup_ui()
-        self.load_folder_structure()
-        self.refresh_folder_tree()
-        
+        self.setup_default_structure()
+    
     def setup_ui(self):
         """Setup the folder tree UI"""
-        self.setHeaderHidden(True)
-        self.setRootIsDecorated(True)
-        self.setAlternatingRowColors(True)
-        self.setDragDropMode(QTreeWidget.DragDrop)
-        self.setDefaultDropAction(Qt.MoveAction)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         
-        # Enable context menu
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.show_context_menu)
+        # Create tree widget first
+        self.tree_widget = QTreeWidget()
+        self.tree_widget.setHeaderHidden(True)
+        self.tree_widget.setRootIsDecorated(True)
+        self.tree_widget.setAlternatingRowColors(True)
+        self.tree_widget.setExpandsOnDoubleClick(True)
         
-        # Connect selection signal
-        self.itemClicked.connect(self.on_item_clicked)
-        self.itemChanged.connect(self.on_item_renamed)
+        # Enable drag and drop
+        self.tree_widget.setDragDropMode(QTreeWidget.DropOnly)
+        self.tree_widget.setAcceptDrops(True)
+        self.tree_widget.setDropIndicatorShown(True)
         
-        # Styling to match Studio Library
+        # Enable drops on the entire widget
+        self.setAcceptDrops(True)
+        
+        # Connect tree signals
+        self.tree_widget.itemClicked.connect(self.on_item_clicked)
+        self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # Override tree widget's drag and drop events
+        self.tree_widget.dragEnterEvent = self.tree_dragEnterEvent
+        self.tree_widget.dragMoveEvent = self.tree_dragMoveEvent  
+        self.tree_widget.dropEvent = self.tree_dropEvent
+        
+        # Now create toolbar (after tree_widget exists)
+        toolbar_widget = self.create_toolbar()
+        layout.addWidget(toolbar_widget)
+        
+        # Add tree widget to layout
+        layout.addWidget(self.tree_widget)
+        
+        # Apply styling to entire widget
+        self.apply_styling()
+        
+    def apply_styling(self):
+        """Apply styling to the folder tree widget"""
         self.setStyleSheet("""
             QTreeWidget {
                 background-color: #393939;
                 color: #ffffff;
                 border: none;
-                outline: none;
                 font-size: 11px;
+                outline: none;
             }
             
             QTreeWidget::item {
-                padding: 4px;
+                padding: 4px 8px;
                 border: none;
-                min-height: 20px;
+                height: 24px;
             }
             
             QTreeWidget::item:selected {
@@ -82,295 +103,429 @@ class FolderTreeWidget(QTreeWidget):
             }
             
             QTreeWidget::item:hover {
-                background-color: #4a4a4a;
+                background-color: #525252;
             }
             
-            QTreeWidget::branch:closed:has-children {
+            QTreeWidget::branch:has-siblings:!adjoins-item {
                 border-image: none;
-                image: none;
+                border: none;
             }
             
-            QTreeWidget::branch:open:has-children {
+            QTreeWidget::branch:has-siblings:adjoins-item {
                 border-image: none;
-                image: none;
+                border: none;
+            }
+            
+            QTreeWidget::branch:!has-children:!has-siblings:adjoins-item {
+                border-image: none;
+                border: none;
+            }
+            
+            QTreeWidget::branch:closed:has-children:has-siblings {
+                image: url(none);
+                border-image: none;
+                border: none;
+            }
+            
+            QTreeWidget::branch:open:has-children:has-siblings {
+                image: url(none);
+                border-image: none;
+                border: none;
+            }
+            
+            QTreeWidget::branch:closed:has-children:!has-siblings {
+                image: url(none);
+                border-image: none;
+                border: none;
+            }
+            
+            QTreeWidget::branch:open:has-children:!has-siblings {
+                image: url(none);
+                border-image: none;
+                border: none;
+            }
+            
+            QPushButton {
+                background-color: #666;
+                color: white;
+                border: 1px solid #777;
+                border-radius: 3px;
+                padding: 4px 8px;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            
+            QPushButton:hover {
+                background-color: #777;
+                border-color: #4a90e2;
+            }
+            
+            QPushButton:pressed {
+                background-color: #555;
             }
         """)
     
-    def load_folder_structure(self):
-        """Load folder structure from file"""
-        try:
-            folder_file = Path("animation_library/folders.json")
-            if folder_file.exists():
-                with open(folder_file, 'r') as f:
-                    self.folder_structure = json.load(f)
-                print("📁 Loaded folder structure from file")
-            else:
-                # Create default structure
-                self.save_folder_structure()
-                print("📁 Created default folder structure")
-        except Exception as e:
-            print(f"❌ Error loading folder structure: {e}")
+    def create_toolbar(self) -> QWidget:
+        """Create toolbar for folder operations"""
+        toolbar = QWidget()
+        layout = QHBoxLayout(toolbar)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(4)
+        
+        # Add folder button
+        self.add_folder_btn = QPushButton("+ Folder")
+        self.add_folder_btn.setToolTip("Create new folder")
+        self.add_folder_btn.clicked.connect(self.create_new_folder)
+        layout.addWidget(self.add_folder_btn)
+        
+        layout.addStretch()
+        
+        # Collapse all button
+        collapse_btn = QPushButton("−")
+        collapse_btn.setToolTip("Collapse all folders")
+        collapse_btn.setMaximumWidth(24)
+        collapse_btn.clicked.connect(self.tree_widget.collapseAll)
+        layout.addWidget(collapse_btn)
+        
+        # Expand all button
+        expand_btn = QPushButton("+")
+        expand_btn.setToolTip("Expand all folders")
+        expand_btn.setMaximumWidth(24)
+        expand_btn.clicked.connect(self.tree_widget.expandAll)
+        layout.addWidget(expand_btn)
+        
+        return toolbar
     
-    def save_folder_structure(self):
-        """Save folder structure to file"""
-        try:
-            folder_file = Path("animation_library/folders.json")
-            folder_file.parent.mkdir(exist_ok=True)
+    def setup_default_structure(self):
+        """Setup minimal default folder structure"""
+        self.folder_structure = {
+            "All Animations": {"type": "filter", "filter": "all", "count": 0},
+            "Custom Folders": {
+                "type": "category",
+                "children": {
+                    "📁 Root": {"type": "folder", "filter": "folder:Root", "count": 0}
+                }
+            }
+        }
+        
+        self.refresh_tree()
+    
+    def update_folder_structure(self, folder_structure: Dict[str, Any]):
+        """Update folder structure from library manager"""
+        # Merge with default structure, keeping custom folders
+        custom_folders = folder_structure.get("Custom Folders", {}).get("children", {})
+        
+        # Update custom folders section
+        if custom_folders:
+            self.folder_structure["Custom Folders"]["children"].update(custom_folders)
+        
+        self.refresh_tree()
+    
+    def refresh_tree(self):
+        """Refresh the tree widget display"""
+        self.tree_widget.clear()
+        
+        # Create tree items
+        for folder_name, folder_data in self.folder_structure.items():
+            folder_item = self.create_tree_item(folder_name, folder_data)
+            self.tree_widget.addTopLevelItem(folder_item)
+        
+        # Expand custom folders by default
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            if item.text(0) == "Custom Folders":
+                item.setExpanded(True)
+                break
+        
+        # Select "All Animations" by default
+        if self.tree_widget.topLevelItemCount() > 0:
+            first_item = self.tree_widget.topLevelItem(0)
+            first_item.setSelected(True)
+            self.current_selection = "all"
+    
+    def create_tree_item(self, name: str, data: Dict[str, Any], parent: Optional[QTreeWidgetItem] = None) -> QTreeWidgetItem:
+        """Create a tree widget item"""
+        if parent:
+            item = QTreeWidgetItem(parent)
+        else:
+            item = QTreeWidgetItem()
+        
+        # Set item text and data
+        display_name = name
+        if data.get("count") is not None:
+            display_name = f"{name} ({data['count']})"
+        
+        item.setText(0, display_name)
+        item.setData(0, Qt.UserRole, data)
+        
+        # Set icon/styling based on type
+        item_type = data.get("type", "folder")
+        if item_type == "category":
+            # Category folders are bold
+            font = item.font(0)
+            font.setBold(True)
+            item.setFont(0, font)
+        elif item_type == "filter":
+            # Filter items are slightly indented visually
+            pass
+        
+        # Add children if present
+        children = data.get("children", {})
+        for child_name, child_data in children.items():
+            self.create_tree_item(child_name, child_data, item)
+        
+        return item
+    
+    def on_item_clicked(self, item: QTreeWidgetItem, column: int):
+        """Handle item click"""
+        item_data = item.data(0, Qt.UserRole)
+        if not item_data:
+            return
+        
+        item_type = item_data.get("type", "folder")
+        
+        if item_type == "filter":
+            # This is a filter item - emit the filter
+            filter_str = item_data.get("filter", "all")
+            self.current_selection = filter_str
+            self.folder_selected.emit(filter_str)
             
-            with open(folder_file, 'w') as f:
-                json.dump(self.folder_structure, f, indent=2)
-            print("💾 Saved folder structure")
-        except Exception as e:
-            print(f"❌ Error saving folder structure: {e}")
-    
-    def refresh_folder_tree(self):
-        """Refresh the folder tree display"""
-        self.clear()
-        
-        # Create root item
-        root_item = QTreeWidgetItem(self, ["📁 Animation Library"])
-        root_item.setData(0, Qt.UserRole, "Root")
-        root_item.setExpanded(True)
-        
-        # Add subfolders
-        self.add_folder_items(root_item, self.folder_structure["folders"]["Root"]["children"])
-        
-        # Select root by default
-        root_item.setSelected(True)
-    
-    def add_folder_items(self, parent_item, folders_dict):
-        """Recursively add folder items"""
-        for folder_name, folder_data in folders_dict.items():
-            folder_item = QTreeWidgetItem(parent_item, [f"📁 {folder_name}"])
-            folder_path = self.get_item_path(folder_item)
-            folder_item.setData(0, Qt.UserRole, folder_path)
-            folder_item.setFlags(folder_item.flags() | Qt.ItemIsEditable)
-            folder_item.setExpanded(True)
+            print(f"📁 Folder filter selected: {filter_str}")
+        elif item_type == "category":
+            # This is a category - just expand/collapse
+            item.setExpanded(not item.isExpanded())
+        elif item_type == "folder":
+            # This is a custom folder - extract clean folder name
+            folder_display_name = item.text(0).split(" (")[0]  # Remove count
+            folder_name = folder_display_name.replace("📁 ", "")  # Remove emoji
+            filter_str = f"folder:{folder_name}"
+            self.current_selection = filter_str
+            self.folder_selected.emit(filter_str)
             
-            # Add subfolders
-            if "children" in folder_data:
-                self.add_folder_items(folder_item, folder_data["children"])
-    
-    def get_item_path(self, item):
-        """Get the full path of a folder item"""
-        path_parts = []
-        current_item = item
-        
-        while current_item is not None:
-            text = current_item.text(0)
-            # Remove emoji and clean up
-            folder_name = text.replace("📁 ", "").replace("Animation Library", "Root")
-            if folder_name and folder_name != "Root" or len(path_parts) == 0:
-                path_parts.insert(0, folder_name)
-            current_item = current_item.parent()
-        
-        return "/".join(path_parts) if path_parts[0] != "Root" else "Root"
+            print(f"📁 Custom folder selected: {folder_name} (filter: {filter_str})")
     
     def show_context_menu(self, position):
         """Show context menu for folder operations"""
-        item = self.itemAt(position)
+        item = self.tree_widget.itemAt(position)
+        if not item:
+            return
+        
+        item_data = item.data(0, Qt.UserRole)
+        if not item_data:
+            return
         
         menu = QMenu(self)
         
-        # New Folder
-        new_folder_action = QAction("📁 New Folder", self)
-        new_folder_action.triggered.connect(lambda: self.create_new_folder(item))
-        menu.addAction(new_folder_action)
+        item_type = item_data.get("type", "folder")
         
-        if item and item.text(0) != "📁 Animation Library":
-            menu.addSeparator()
+        if item_type == "category" and item.text(0) == "Custom Folders":
+            # Add folder to custom folders
+            add_action = QAction("Add Folder", self)
+            add_action.triggered.connect(self.create_new_folder)
+            menu.addAction(add_action)
+        elif item_type == "folder" and item.parent() and item.parent().text(0) == "Custom Folders":
+            # Custom folder operations
+            folder_display_name = item.text(0).split(" (")[0]
+            folder_name = folder_display_name.replace("📁 ", "")
             
-            # Rename Folder
-            rename_action = QAction("✏️ Rename", self)
-            rename_action.triggered.connect(lambda: self.rename_folder(item))
-            menu.addAction(rename_action)
-            
-            # Delete Folder
-            delete_action = QAction("🗑️ Delete", self)
-            delete_action.triggered.connect(lambda: self.delete_folder(item))
-            menu.addAction(delete_action)
-            
-            menu.addSeparator()
-            
-            # Refresh
-            refresh_action = QAction("🔄 Refresh", self)
-            refresh_action.triggered.connect(self.refresh_folder_tree)
-            menu.addAction(refresh_action)
+            # Don't allow deleting Root folder
+            if folder_name == "Root":
+                info_action = QAction("📁 Root folder (cannot be deleted)", self)
+                info_action.setEnabled(False)
+                menu.addAction(info_action)
+            else:
+                rename_action = QAction("Rename", self)
+                rename_action.triggered.connect(lambda: self.rename_folder(item))
+                menu.addAction(rename_action)
+                
+                delete_action = QAction("Delete", self)
+                delete_action.triggered.connect(lambda: self.delete_folder(item))
+                menu.addAction(delete_action)
         
-        menu.exec(self.mapToGlobal(position))
+        if menu.actions():
+            menu.exec_(self.tree_widget.mapToGlobal(position))
     
-    def create_new_folder(self, parent_item=None):
-        """Create a new folder"""
+    def create_new_folder(self):
+        """Create a new custom folder"""
         folder_name, ok = QInputDialog.getText(
-            self, 
-            "New Folder", 
-            "Enter folder name:",
-            text="New Folder"
+            self, "New Folder", "Enter folder name:",
+            text=""
         )
         
         if ok and folder_name.strip():
             folder_name = folder_name.strip()
             
-            # Get parent path
-            if parent_item is None:
-                parent_path = "Root"
-            else:
-                parent_path = self.get_item_path(parent_item)
-            
-            # Create folder in structure
-            self.add_folder_to_structure(parent_path, folder_name)
-            
-            # Refresh display
-            self.refresh_folder_tree()
-            
-            # Save structure
-            self.save_folder_structure()
-            
-            # Emit signal
-            new_folder_path = f"{parent_path}/{folder_name}" if parent_path != "Root" else folder_name
-            self.folder_created.emit(new_folder_path)
-            
-            print(f"📁 Created folder: {new_folder_path}")
+            # Emit signal to let main window handle the creation
+            print(f"📁 Requesting folder creation: {folder_name}")
+            self.folder_created.emit(folder_name)
     
-    def add_folder_to_structure(self, parent_path, folder_name):
-        """Add folder to the structure"""
-        # Navigate to parent folder in structure
-        current = self.folder_structure["folders"]
+    def rename_folder(self, item: QTreeWidgetItem):
+        """Rename a custom folder"""
+        old_name = item.text(0).split(" (")[0].replace("📁 ", "")
         
-        if parent_path != "Root":
-            path_parts = parent_path.split("/")
-            for part in path_parts:
-                if part in current:
-                    current = current[part]["children"]
-                else:
-                    break
-        else:
-            current = current["Root"]["children"]
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Folder", "Enter new folder name:",
+            text=old_name
+        )
         
-        # Add new folder
-        current[folder_name] = {"children": {}}
-    
-    def rename_folder(self, item):
-        """Rename a folder"""
-        if item and item.text(0) != "📁 Animation Library":
-            self.editItem(item, 0)
-    
-    def on_item_renamed(self, item, column):
-        """Handle folder rename"""
-        if column == 0:
-            new_text = item.text(0)
+        if ok and new_name.strip() and new_name.strip() != old_name:
+            new_name = new_name.strip()
             
-            # Extract folder name (remove emoji)
-            new_name = new_text.replace("📁 ", "").strip()
+            # Update structure
+            custom_folders = self.folder_structure["Custom Folders"]["children"]
+            old_key = f"📁 {old_name}"
+            new_key = f"📁 {new_name}"
             
-            if new_name:
-                # Update the display
-                item.setText(0, f"📁 {new_name}")
-                
-                # Get old and new paths
-                old_path = item.data(0, Qt.UserRole)
-                new_path = self.get_item_path(item)
-                
-                if old_path != new_path:
-                    # Update structure and save
-                    self.rename_folder_in_structure(old_path, new_name)
-                    self.save_folder_structure()
-                    
-                    # Emit signal
-                    self.folder_renamed.emit(old_path, new_path)
-                    
-                    print(f"✏️ Renamed folder: {old_path} → {new_path}")
-    
-    def rename_folder_in_structure(self, old_path, new_name):
-        """Rename folder in the structure"""
-        # This is complex - for now we'll refresh the whole structure
-        # In a production app, you'd update the specific path
-        pass
-    
-    def delete_folder(self, item):
-        """Delete a folder"""
-        if item and item.text(0) != "📁 Animation Library":
-            folder_path = self.get_item_path(item)
+            if new_key in custom_folders:
+                QMessageBox.warning(self, "Folder Exists", f"A folder named '{new_name}' already exists.")
+                return
             
-            reply = QMessageBox.question(
-                self,
-                "Delete Folder",
-                f"Are you sure you want to delete folder '{folder_path}'?\n\nThis will move all animations in this folder to the root.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                # Remove from structure
-                self.remove_folder_from_structure(folder_path)
+            # Move folder data
+            if old_key in custom_folders:
+                folder_data = custom_folders[old_key]
+                folder_data["filter"] = f"folder:{new_name}"
+                custom_folders[new_key] = folder_data
+                del custom_folders[old_key]
                 
-                # Refresh display
-                self.refresh_folder_tree()
+                # Refresh tree
+                self.refresh_tree()
                 
-                # Save structure
-                self.save_folder_structure()
+                print(f"📁 Renamed folder: {old_name} → {new_name}")
                 
-                # Emit signal
-                self.folder_deleted.emit(folder_path)
-                
-                print(f"🗑️ Deleted folder: {folder_path}")
+                # TODO: Update animations in this folder
+                # This would require connection to library manager
     
-    def remove_folder_from_structure(self, folder_path):
-        """Remove folder from structure"""
-        # This is complex - for now we'll just refresh
-        # In a production app, you'd remove the specific path and move animations
-        pass
-    
-    def on_item_clicked(self, item, column):
-        """Handle item click"""
-        folder_path = item.data(0, Qt.UserRole)
-        if folder_path:
-            self.current_folder = folder_path
-            self.folder_selected.emit(folder_path)
-            print(f"📁 Selected folder: {folder_path}")
-    
-    def get_current_folder(self):
-        """Get the currently selected folder"""
-        return self.current_folder
-    
-    def set_current_folder(self, folder_path):
-        """Set the current folder and select it"""
-        self.current_folder = folder_path
+    def delete_folder(self, item: QTreeWidgetItem):
+        """Delete a custom folder"""
+        folder_display_name = item.text(0).split(" (")[0]
+        folder_name = folder_display_name.replace("📁 ", "")
         
-        # Find and select the item
-        for i in range(self.topLevelItemCount()):
-            item = self.topLevelItem(i)
-            if self.find_and_select_item(item, folder_path):
+        reply = QMessageBox.question(
+            self, "Delete Folder",
+            f"Are you sure you want to delete the folder '{folder_name}'?\n\n"
+            "Animations in this folder will be moved to Root.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            print(f"🗑️ Requesting folder deletion: {folder_name}")
+            # Emit signal to let main window handle the deletion through library manager
+            self.folder_deleted.emit(folder_name)
+    
+    def update_folder_counts(self, folder_stats: Dict[str, Dict[str, int]]):
+        """Update folder counts from library statistics"""
+        # Update custom folder counts
+        custom_folders = self.folder_structure["Custom Folders"]["children"]
+        for folder_key, folder_data in custom_folders.items():
+            folder_name = folder_key.replace("📁 ", "")
+            if folder_name in folder_stats:
+                folder_data["count"] = folder_stats[folder_name]["total"]
+        
+        # Update other dynamic counts would go here
+        # For now, we'll refresh the display
+        self.refresh_tree()
+    
+    def select_folder(self, filter_str: str):
+        """Programmatically select a folder by filter string"""
+        self.current_selection = filter_str
+        
+        # Find and select the corresponding item
+        def find_item_by_filter(item, target_filter):
+            item_data = item.data(0, Qt.UserRole)
+            if item_data and item_data.get("filter") == target_filter:
+                return item
+            
+            for i in range(item.childCount()):
+                found = find_item_by_filter(item.child(i), target_filter)
+                if found:
+                    return found
+            return None
+        
+        # Search all top-level items
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            found_item = find_item_by_filter(item, filter_str)
+            if found_item:
+                self.tree_widget.setCurrentItem(found_item)
+                found_item.setSelected(True)
                 break
     
-    def find_and_select_item(self, item, folder_path):
-        """Recursively find and select an item by path"""
-        if item.data(0, Qt.UserRole) == folder_path:
-            item.setSelected(True)
-            return True
-        
-        for i in range(item.childCount()):
-            if self.find_and_select_item(item.child(i), folder_path):
-                return True
-        
-        return False
+    def force_refresh_from_library(self, folder_structure: Dict[str, Any]):
+        """Force refresh tree from library structure (for after deletions)"""
+        print(f"🔄 TREE: Force refreshing tree from library structure")
+        self.folder_structure = folder_structure
+        self.refresh_tree()
+        print(f"🔄 TREE: Tree refreshed with {len(folder_structure)} top-level items")
     
-    def get_all_folders(self):
-        """Get list of all folder paths"""
-        folders = ["Root"]
-        
-        def collect_folders(folders_dict, parent_path=""):
-            for folder_name in folders_dict:
-                if parent_path:
-                    folder_path = f"{parent_path}/{folder_name}"
-                else:
-                    folder_path = folder_name
+    def get_current_selection(self) -> str:
+        """Get the current folder selection filter"""
+        return self.current_selection
+    
+    def tree_dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter event for tree widget"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:"):
+                event.acceptProposedAction()
+                print(f"🎬 Drag enter accepted: {data}")
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def tree_dragMoveEvent(self, event):
+        """Handle drag move event for tree widget"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:"):
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def tree_dropEvent(self, event: QDropEvent):
+        """Handle drop event for tree widget"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:"):
+                animation_id = data.replace("animation_id:", "")
                 
-                if folder_path != "Root":
-                    folders.append(folder_path)
+                # Get the item at drop position
+                position = event.pos()
+                item = self.tree_widget.itemAt(position)
                 
-                if "children" in folders_dict[folder_name]:
-                    collect_folders(folders_dict[folder_name]["children"], folder_path)
+                if item:
+                    # Get target folder
+                    target_folder = self._get_folder_path_from_item(item)
+                    if target_folder:
+                        print(f"🎬 Drop successful! Animation {animation_id} → {target_folder}")
+                        self.animation_moved.emit(animation_id, target_folder)
+                        event.acceptProposedAction()
+                        return
+                
+                print("🎬 Drop failed - invalid target")
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def _get_folder_path_from_item(self, item: QTreeWidgetItem) -> Optional[str]:
+        """Get folder path from tree item"""
+        item_data = item.data(0, Qt.UserRole)
+        if not item_data:
+            return None
         
-        collect_folders(self.folder_structure["folders"]["Root"]["children"])
-        return folders
+        item_type = item_data.get("type", "")
+        
+        if item_type == "folder":
+            # This is a custom folder - extract the clean folder name
+            folder_display_name = item.text(0).split(" (")[0]  # Remove count
+            folder_name = folder_display_name.replace("📁 ", "")  # Remove emoji
+            print(f"🔍 Extracted folder name: '{folder_name}' from display: '{folder_display_name}'")
+            return folder_name
+        elif item_type == "category" and item.text(0) == "Custom Folders":
+            # Dropped on Custom Folders category - use Root
+            return "Root"
+        
+        return None

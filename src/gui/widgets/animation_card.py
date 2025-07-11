@@ -1,14 +1,15 @@
 """
 Animation Card Widget - Studio Library Style
-Professional animation card display with metadata and actions
+Professional animation card display with metadata, actions, and drag & drop support
 """
 
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QWidget, QMenu, QToolButton, QGraphicsDropShadowEffect, QGridLayout
+    QWidget, QMenu, QToolButton, QGraphicsDropShadowEffect, QGridLayout,
+    QApplication, QInputDialog
 )
-from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient
+from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer, QMimeData
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient, QDrag
 from typing import Dict, Any, Optional
 import sys
 from pathlib import Path
@@ -155,13 +156,14 @@ class AnimationThumbnail(QLabel):
 
 
 class AnimationCard(QFrame):
-    """Professional animation card with Studio Library styling"""
+    """Professional animation card with Studio Library styling and drag & drop support"""
     
     # Signals
     apply_requested = Signal(dict)
     edit_requested = Signal(dict)
     delete_requested = Signal(dict)
     preview_requested = Signal(dict)
+    move_to_folder_requested = Signal(dict, str)  # NEW: For folder movement
     
     def __init__(self, animation_data: Dict[str, Any], parent=None):
         super().__init__(parent)
@@ -169,10 +171,14 @@ class AnimationCard(QFrame):
         self.animation_metadata = AnimationMetadata.from_dict(animation_data)
         self.is_hovered = False
         self.is_selected = False
+        self.drag_start_position = None
         
         self.setup_ui()
         self.setup_animations()
         self.setup_style()
+        
+        # Enable drag and drop
+        self.setAcceptDrops(False)  # Cards don't accept drops, only initiate drags
     
     def setup_ui(self):
         """Setup the card UI layout"""
@@ -434,10 +440,121 @@ class AnimationCard(QFrame):
         super().leaveEvent(event)
     
     def mousePressEvent(self, event):
-        """Handle mouse press for selection"""
+        """Handle mouse press for selection and drag start"""
+        print(f"🖱️ Mouse press on card: {self.animation_metadata.name}")
         if event.button() == Qt.LeftButton:
             self.set_selected(True)
+            self.drag_start_position = event.pos()
+            print(f"🖱️ Drag start position set: {self.drag_start_position}")
         super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for drag initiation"""
+        if not (event.buttons() & Qt.LeftButton):
+            return
+        
+        if not self.drag_start_position:
+            return
+        
+        # Check if we've moved far enough to start a drag
+        distance = (event.pos() - self.drag_start_position).manhattanLength()
+        min_distance = QApplication.startDragDistance()
+        
+        print(f"🖱️ Mouse move - distance: {distance}, min: {min_distance}")
+        
+        if distance < min_distance:
+            return
+        
+        print(f"🎬 Starting drag for: {self.animation_metadata.name}")
+        # Start drag operation
+        self.start_drag()
+    
+    def start_drag(self):
+        """Start drag operation for this animation card"""
+        print(f"🚀 Drag started for animation: {self.animation_metadata.name}")
+        
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        # Set animation ID as drag data
+        animation_id = self.animation_data.get('id', '')
+        mime_data.setText(f"animation_id:{animation_id}")
+        
+        print(f"🎬 Drag data: animation_id:{animation_id}")
+        
+        drag.setMimeData(mime_data)
+        
+        # Create drag pixmap (thumbnail of the card)
+        pixmap = self.grab()
+        scaled_pixmap = pixmap.scaled(200, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        
+        # Make it semi-transparent
+        painter = QPainter(scaled_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+        painter.fillRect(scaled_pixmap.rect(), QColor(0, 0, 0, 180))
+        painter.end()
+        
+        drag.setPixmap(scaled_pixmap)
+        drag.setHotSpot(scaled_pixmap.rect().center())
+        
+        # Execute drag
+        print(f"🎬 Executing drag...")
+        drop_action = drag.exec_(Qt.MoveAction)
+        
+        print(f"🎬 Drag completed for animation: {self.animation_metadata.name}, action: {drop_action}")
+    
+    def contextMenuEvent(self, event):
+        """Show context menu with folder move options"""
+        menu = QMenu(self)
+        
+        # Move to folder submenu
+        move_menu = QMenu("Move to Folder", self)
+        
+        # Add some common folder options (these would come from the library manager)
+        root_action = QAction("📁 Root", self)
+        root_action.triggered.connect(lambda: self.move_to_folder_requested.emit(self.animation_data, "Root"))
+        move_menu.addAction(root_action)
+        
+        # Separator for custom folders
+        move_menu.addSeparator()
+        
+        # TODO: Add dynamic folder list from library manager
+        # For now, just add a placeholder
+        new_folder_action = QAction("+ Create New Folder...", self)
+        new_folder_action.triggered.connect(self.show_folder_creation_dialog)
+        move_menu.addAction(new_folder_action)
+        
+        menu.addMenu(move_menu)
+        menu.addSeparator()
+        
+        # Other options
+        preview_action = QAction("Preview", self)
+        preview_action.triggered.connect(lambda: self.preview_requested.emit(self.animation_data))
+        menu.addAction(preview_action)
+        
+        edit_action = QAction("Edit Metadata", self)
+        edit_action.triggered.connect(lambda: self.edit_requested.emit(self.animation_data))
+        menu.addAction(edit_action)
+        
+        menu.addSeparator()
+        
+        delete_action = QAction("Delete", self)
+        delete_action.triggered.connect(lambda: self.delete_requested.emit(self.animation_data))
+        menu.addAction(delete_action)
+        
+        menu.exec_(event.globalPos())
+    
+    def show_folder_creation_dialog(self):
+        """Show dialog to create new folder and move animation there"""
+        folder_name, ok = QInputDialog.getText(
+            self, "Create Folder", 
+            f"Create folder and move '{self.animation_metadata.name}' there:",
+            text=""
+        )
+        
+        if ok and folder_name.strip():
+            folder_name = folder_name.strip()
+            self.move_to_folder_requested.emit(self.animation_data, folder_name)
     
     def set_selected(self, selected: bool):
         """Set selection state"""
@@ -532,8 +649,15 @@ class AnimationCardGrid(QWidget):
     
     def add_card(self, animation_card):
         """Add animation card to grid"""
-        # Connect selection signal
-        animation_card.mousePressEvent = lambda event: self.select_card(animation_card)
+        # Connect selection signal properly
+        original_mouse_press = animation_card.mousePressEvent
+        
+        def new_mouse_press(event):
+            original_mouse_press(event)
+            if event.button() == Qt.LeftButton:
+                self.select_card(animation_card)
+        
+        animation_card.mousePressEvent = new_mouse_press
         
         self.cards.append(animation_card)
         self.refresh_layout()

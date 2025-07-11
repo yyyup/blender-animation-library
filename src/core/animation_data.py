@@ -81,7 +81,7 @@ class BlendFileReference:
 
 @dataclass
 class AnimationMetadata:
-    """Complete animation metadata with .blend file storage support"""
+    """Complete animation metadata with .blend file storage support and folder organization"""
     id: str
     name: str
     description: str
@@ -99,7 +99,10 @@ class AnimationMetadata:
     quality_rating: float = 0.0
     usage_count: int = 0
     
-    # NEW: Storage method and .blend file support
+    # NEW: Folder organization
+    folder_path: str = "Root"  # Folder path in library structure
+    
+    # Storage method and .blend file support
     storage_method: str = "blend_file"  # "blend_file" or "json_keyframes"
     blend_reference: Optional[BlendFileReference] = None
     extraction_time_seconds: float = 1.5  # Time to extract
@@ -110,85 +113,129 @@ class AnimationMetadata:
         if self.duration_frames == 0.0:
             self.duration_frames = self.frame_range[1] - self.frame_range[0] + 1
     
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        result = {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "armature_source": self.armature_source,
+            "frame_range": list(self.frame_range),
+            "total_bones_animated": self.total_bones_animated,
+            "total_keyframes": self.total_keyframes,
+            "bone_data": {
+                bone_name: {
+                    "channels": list(bone_data.channels.keys()),
+                    "keyframe_count": bone_data.total_keyframes
+                }
+                for bone_name, bone_data in self.bone_data.items()
+            },
+            "created_date": self.created_date,
+            "rig_type": self.rig_type,
+            "tags": self.tags,
+            "category": self.category,
+            "duration_frames": self.duration_frames,
+            "author": self.author,
+            "quality_rating": self.quality_rating,
+            "usage_count": self.usage_count,
+            "folder_path": self.folder_path,  # NEW: Include folder path
+            "storage_method": self.storage_method,
+            "extraction_time_seconds": self.extraction_time_seconds,
+            "application_time_seconds": self.application_time_seconds
+        }
+        
+        # Add .blend file reference if using new storage
+        if self.blend_reference:
+            result.update({
+                "blend_file": self.blend_reference.blend_file,
+                "blend_action_name": self.blend_reference.blend_action_name,
+                "file_size_mb": self.blend_reference.file_size_mb
+            })
+        
+        # Preserve original blender data for legacy animations
+        if hasattr(self, '_original_blender_data'):
+            result['_original_blender_data'] = self._original_blender_data
+        
+        return result
+    
     @classmethod
-    def from_blender_data(cls, blender_data: Dict[str, Any]) -> 'AnimationMetadata':
-        """Create AnimationMetadata from Blender extraction data"""
-        animation_id = blender_data.get('animation_id', 
-                                      f"{blender_data['armature_name']}_{blender_data['action_name']}_{int(datetime.now().timestamp())}")
-        animation_id = animation_id.replace("|", "_").replace(" ", "_")
-        
-        # Process bone data (lightweight for .blend files)
+    def from_dict(cls, data: Dict[str, Any]) -> 'AnimationMetadata':
+        """Create from dictionary (JSON deserialization)"""
+        # Reconstruct bone data
         bone_data = {}
+        for bone_name, bone_info in data.get('bone_data', {}).items():
+            bone_anim = BoneAnimationData(bone_name=bone_name)
+            bone_anim.total_keyframes = bone_info.get('keyframe_count', 0)
+            
+            for channel_str in bone_info.get('channels', []):
+                if '[' in channel_str and ']' in channel_str:
+                    last_bracket = channel_str.rfind('[')
+                    if last_bracket != -1:
+                        channel_name = channel_str[:last_bracket]
+                        array_index_str = channel_str[last_bracket+1:].rstrip(']')
+                        
+                        try:
+                            array_index = int(array_index_str)
+                            bone_anim.channels[channel_str] = ChannelData(
+                                channel_name=channel_name,
+                                array_index=array_index,
+                                keyframe_count=bone_info.get('keyframe_count', 0),
+                                frame_range=tuple(data['frame_range'])
+                            )
+                        except ValueError:
+                            bone_anim.channels[channel_str] = ChannelData(
+                                channel_name=channel_str,
+                                array_index=0,
+                                keyframe_count=bone_info.get('keyframe_count', 0),
+                                frame_range=tuple(data['frame_range'])
+                            )
+                else:
+                    bone_anim.channels[channel_str] = ChannelData(
+                        channel_name=channel_str,
+                        array_index=0,
+                        keyframe_count=bone_info.get('keyframe_count', 0),
+                        frame_range=tuple(data['frame_range'])
+                    )
+            
+            bone_data[bone_name] = bone_anim
         
-        # For .blend file storage, we only need basic bone info
-        if blender_data.get('storage_method') == 'blend_file':
-            # Lightweight bone data - actual animation is in .blend file
-            animated_bones = blender_data.get('animated_bones', [])
-            for bone_name in animated_bones:
-                bone_anim = BoneAnimationData(bone_name=bone_name)
-                # Add placeholder channel info
-                bone_anim.total_keyframes = blender_data.get('total_keyframes', 0) // len(animated_bones) if animated_bones else 0
-                bone_data[bone_name] = bone_anim
-        else:
-            # Legacy: Full keyframe data processing
-            for bone_name, bone_info in blender_data.get('bone_data', {}).items():
-                bone_anim = BoneAnimationData(bone_name=bone_name)
-                
-                for channel_str in bone_info.get('channels', []):
-                    if '[' in channel_str and ']' in channel_str:
-                        last_bracket = channel_str.rfind('[')
-                        if last_bracket != -1:
-                            channel_name = channel_str[:last_bracket]
-                            array_index_str = channel_str[last_bracket+1:].rstrip(']')
-                            
-                            try:
-                                array_index = int(array_index_str)
-                                keyframe_count = bone_info.get('keyframe_count', 0)
-                                frame_range = blender_data.get('frame_range', (1, 1))
-                                
-                                bone_anim.add_channel(channel_name, array_index, keyframe_count, frame_range)
-                            except ValueError:
-                                bone_anim.add_channel(channel_str, 0, bone_info.get('keyframe_count', 0), blender_data.get('frame_range', (1, 1)))
-                    else:
-                        bone_anim.add_channel(channel_str, 0, bone_info.get('keyframe_count', 0), blender_data.get('frame_range', (1, 1)))
-                
-                bone_data[bone_name] = bone_anim
-        
-        # Create .blend file reference if using new storage
+        # Create .blend file reference if present
         blend_reference = None
-        if blender_data.get('storage_method') == 'blend_file':
+        if data.get('storage_method') == 'blend_file' and 'blend_file' in data:
             blend_reference = BlendFileReference(
-                blend_file=blender_data['blend_file'],
-                blend_action_name=blender_data['blend_action_name'],
-                file_size_mb=blender_data.get('file_size_mb', 0.0),
-                creation_date=blender_data.get('created_date', datetime.now().isoformat())
+                blend_file=data['blend_file'],
+                blend_action_name=data['blend_action_name'],
+                file_size_mb=data.get('file_size_mb', 0.0),
+                creation_date=data.get('created_date', datetime.now().isoformat())
             )
         
-        # Create metadata
         metadata = cls(
-            id=animation_id,
-            name=blender_data['action_name'],
-            description=f"Extracted from {blender_data['armature_name']}",
-            armature_source=blender_data['armature_name'],
-            frame_range=tuple(blender_data['frame_range']),
-            total_bones_animated=blender_data['total_bones_animated'],
-            total_keyframes=blender_data['total_keyframes'],
+            id=data['id'],
+            name=data['name'],
+            description=data['description'],
+            armature_source=data['armature_source'],
+            frame_range=tuple(data['frame_range']),
+            total_bones_animated=data['total_bones_animated'],
+            total_keyframes=data['total_keyframes'],
             bone_data=bone_data,
-            rig_type=RigTypeDetector.detect_rig_type(
-                blender_data['armature_name'], 
-                list(blender_data.get('animated_bones', blender_data.get('bone_data', {}).keys()))
-            ),
-            tags=AnimationTagger.generate_tags(blender_data, bone_data),
-            category="extracted",
-            storage_method=blender_data.get('storage_method', 'blend_file'),
+            created_date=data.get('created_date', datetime.now().isoformat()),
+            rig_type=data.get('rig_type', 'unknown'),
+            tags=data.get('tags', []),
+            category=data.get('category', 'extracted'),
+            duration_frames=data.get('duration_frames', 0.0),
+            author=data.get('author', ''),
+            quality_rating=data.get('quality_rating', 0.0),
+            usage_count=data.get('usage_count', 0),
+            folder_path=data.get('folder_path', 'Root'),  # NEW: Load folder path
+            storage_method=data.get('storage_method', 'json_keyframes'),  # Default to legacy
             blend_reference=blend_reference,
-            extraction_time_seconds=blender_data.get('extraction_time_seconds', 1.5),
-            application_time_seconds=0.5 if blender_data.get('storage_method') == 'blend_file' else 30.0
+            extraction_time_seconds=data.get('extraction_time_seconds', 30.0),
+            application_time_seconds=data.get('application_time_seconds', 30.0)
         )
         
-        # Store original blender data for legacy support
-        if blender_data.get('storage_method') != 'blend_file':
-            metadata._original_blender_data = blender_data
+        # Restore original blender data if available (legacy support)
+        if '_original_blender_data' in data:
+            metadata._original_blender_data = data['_original_blender_data']
         
         return metadata
     

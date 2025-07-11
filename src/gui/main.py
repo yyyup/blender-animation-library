@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Animation Library Qt GUI - Main Application
-Clean, modular Studio Library interface
+Clean, modular Studio Library interface with folder structure
 """
 
 import sys
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnimationLibraryMainWindow(QMainWindow):
-    """Main window with modular Studio Library layout"""
+    """Main window with modular Studio Library layout and folder structure"""
     
     def __init__(self):
         super().__init__()
@@ -52,7 +52,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.setup_connections()
         self.load_library()
         
-        print("🎨 Modular Studio Library interface initialized!")
+        print("🎨 Modular Studio Library interface with folder structure initialized!")
         
         # Auto-refresh timer
         self.refresh_timer = QTimer()
@@ -93,7 +93,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.connection_status)
         
         # Show ready message
-        self.status_bar.showMessage("Animation Library ready - Modular Studio Layout", 3000)
+        self.status_bar.showMessage("Animation Library ready - Modular Studio Layout with Folders", 3000)
         
         # Status bar styling
         self.status_bar.setStyleSheet("""
@@ -132,6 +132,9 @@ class AnimationLibraryMainWindow(QMainWindow):
         toolbar.rig_filter_changed.connect(self.on_rig_filter_changed)
         
         folder_tree.folder_selected.connect(self.on_folder_selected)
+        folder_tree.animation_moved.connect(self.on_animation_moved)  # NEW: Handle drag & drop
+        folder_tree.folder_created.connect(self.on_folder_created)  # NEW: Handle folder creation
+        folder_tree.folder_deleted.connect(self.on_folder_deleted)  # NEW: Handle folder deletion
         animation_grid.animation_selected.connect(self.on_animation_selected)
     
     def get_application_style(self) -> str:
@@ -338,10 +341,14 @@ class AnimationLibraryMainWindow(QMainWindow):
         """Handle animation extraction from Blender"""
         try:
             metadata = AnimationMetadata.from_blender_data(animation_data)
-            self.library_manager.add_animation(metadata)
             
+            # Add to library (default to Root folder)
+            self.library_manager.add_animation(metadata, "Root")
+            
+            # Refresh displays
             self.refresh_library_display()
             self.update_tag_filter()
+            self.update_folder_tree()
             
             self.status_bar.showMessage(f"Animation '{animation_data['action_name']}' extracted successfully", 3000)
             
@@ -362,10 +369,27 @@ class AnimationLibraryMainWindow(QMainWindow):
     
     # UI event handlers
     def on_folder_selected(self, filter_str: str):
-        """Handle folder selection"""
+        """Handle folder selection from tree"""
+        print(f"📁 Folder filter applied: {filter_str}")
         self.current_filter = filter_str
         self.refresh_library_display()
-        print(f"📁 Folder selected: {filter_str}")
+        
+        # Update status
+        if filter_str == "all":
+            self.status_bar.showMessage("Showing all animations", 2000)
+        elif filter_str.startswith("rig_type:"):
+            rig_type = filter_str.split(":", 1)[1]
+            self.status_bar.showMessage(f"Filtered by rig type: {rig_type}", 2000)
+        elif filter_str.startswith("storage:"):
+            storage_type = filter_str.split(":", 1)[1]
+            storage_name = "Instant .blend files" if storage_type == "blend_file" else "Legacy JSON files"
+            self.status_bar.showMessage(f"Filtered by storage: {storage_name}", 2000)
+        elif filter_str.startswith("category:"):
+            category = filter_str.split(":", 1)[1]
+            self.status_bar.showMessage(f"Filtered by category: {category.title()}", 2000)
+        elif filter_str.startswith("folder:"):
+            folder_name = filter_str.split(":", 1)[1]
+            self.status_bar.showMessage(f"Showing folder: {folder_name}", 2000)
     
     def on_animation_selected(self, animation_data: dict):
         """Handle animation selection"""
@@ -463,6 +487,123 @@ class AnimationLibraryMainWindow(QMainWindow):
         """Edit animation metadata (placeholder)"""
         QMessageBox.information(self, "Edit", f"Edit dialog for '{animation_data['name']}' would be shown here")
     
+    def on_animation_moved(self, animation_id: str, target_folder: str):
+        """Handle animation moved to folder via drag & drop"""
+        try:
+            print(f"🎬 BEFORE MOVE - Animation {animation_id} to folder '{target_folder}'")
+            
+            # Get animation to see current folder
+            animation = self.library_manager.get_animation(animation_id)
+            if animation:
+                current_folder = getattr(animation, 'folder_path', 'Root')
+                print(f"🎬 Current folder: '{current_folder}' → Target folder: '{target_folder}'")
+            
+            # Move animation in library
+            success = self.library_manager.move_animation_to_folder(animation_id, target_folder)
+            
+            if success:
+                # Get animation name for status message
+                animation = self.library_manager.get_animation(animation_id)
+                animation_name = animation.name if animation else "Animation"
+                new_folder = getattr(animation, 'folder_path', 'Root') if animation else 'Unknown'
+                
+                print(f"🎬 AFTER MOVE - Animation {animation_name} now in folder: '{new_folder}'")
+                
+                # Refresh displays
+                self.refresh_library_display()
+                self.update_folder_tree()
+                
+                # Show success message
+                self.status_bar.showMessage(f"Moved '{animation_name}' to folder '{target_folder}'", 3000)
+                print(f"📁 SUCCESS: Moved {animation_name} to {target_folder}")
+            else:
+                print(f"❌ FAILED: Could not move animation to folder '{target_folder}'")
+                QMessageBox.warning(self, "Move Failed", f"Failed to move animation to folder '{target_folder}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to move animation {animation_id}: {e}")
+            QMessageBox.warning(self, "Move Error", f"Error moving animation:\n{str(e)}")
+    
+    def on_folder_created(self, folder_name: str):
+        """Handle new folder creation from tree widget"""
+        try:
+            print(f"📁 Creating folder: {folder_name}")
+            
+            # Check if folder already exists
+            folder_stats = self.library_manager.get_folder_statistics()
+            if folder_name in folder_stats:
+                QMessageBox.warning(self, "Folder Exists", f"A folder named '{folder_name}' already exists.")
+                return
+            
+            # Create folder in library manager
+            success = self.library_manager.create_folder(folder_name)
+            
+            if success:
+                # Update folder tree display
+                self.update_folder_tree()
+                
+                # Show success message
+                self.status_bar.showMessage(f"Created folder '{folder_name}'", 3000)
+                print(f"✅ Folder created successfully: {folder_name}")
+            else:
+                QMessageBox.warning(self, "Folder Creation Failed", f"Failed to create folder '{folder_name}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to create folder {folder_name}: {e}")
+            QMessageBox.warning(self, "Folder Creation Error", f"Error creating folder:\n{str(e)}")
+    
+    def on_folder_deleted(self, folder_name: str):
+        """Handle folder deletion from tree widget"""
+        try:
+            print(f"🗑️ Main window: Deleting folder: {folder_name}")
+            
+            # Delete folder through library manager (this will move animations to Root)
+            success = self.library_manager.delete_folder(folder_name)
+            
+            if success:
+                print(f"✅ Main window: Folder deletion successful")
+                
+                # If we're currently viewing the deleted folder, switch to "All"
+                if self.current_filter == f"folder:{folder_name}":
+                    print(f"🔄 Switching from deleted folder view to 'All Animations'")
+                    self.current_filter = "all"
+                
+                # Update folder tree display (reload structure from library)
+                self.update_folder_tree()
+                
+                # Refresh animation display 
+                self.refresh_library_display()
+                
+                # Show success message
+                self.status_bar.showMessage(f"Deleted folder '{folder_name}' and moved animations to Root", 3000)
+                print(f"✅ Main window: Folder deleted successfully: {folder_name}")
+            else:
+                print(f"❌ Main window: Folder deletion failed")
+                QMessageBox.warning(self, "Folder Deletion Failed", f"Failed to delete folder '{folder_name}'")
+                
+        except Exception as e:
+            print(f"❌ Main window: Exception during folder deletion: {e}")
+            import traceback
+            traceback.print_exc()
+            logger.error(f"Failed to delete folder {folder_name}: {e}")
+            QMessageBox.warning(self, "Folder Deletion Error", f"Error deleting folder:\n{str(e)}")
+    
+    def move_animation_to_folder(self, animation_data: dict, target_folder: str):
+        """Move animation to folder via context menu"""
+        animation_id = animation_data.get('id')
+        if animation_id:
+            # Check if we need to create the folder first
+            folder_stats = self.library_manager.get_folder_statistics()
+            if target_folder not in folder_stats:
+                # Create the folder
+                success = self.library_manager.create_folder(target_folder)
+                if not success:
+                    QMessageBox.warning(self, "Folder Creation Failed", f"Failed to create folder '{target_folder}'")
+                    return
+            
+            # Move the animation
+            self.on_animation_moved(animation_id, target_folder)
+    
     def delete_animation(self, animation_data: dict):
         """Delete animation from library"""
         reply = QMessageBox.question(
@@ -477,6 +618,26 @@ class AnimationLibraryMainWindow(QMainWindow):
             self.library_manager.remove_animation(animation_id)
             self.refresh_library_display()
             self.update_tag_filter()
+            self.update_folder_tree()
+            
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            metadata_panel.show_no_selection()
+            
+            self.status_bar.showMessage(f"Deleted animation '{animation_data['name']}'", 3000)
+        """Delete animation from library"""
+        reply = QMessageBox.question(
+            self, "Delete Animation",
+            f"Are you sure you want to delete '{animation_data['name']}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            animation_id = animation_data['id']
+            self.library_manager.remove_animation(animation_id)
+            self.refresh_library_display()
+            self.update_tag_filter()
+            self.update_folder_tree()
             
             metadata_panel = self.layout_manager.get_widget('metadata_panel')
             metadata_panel.show_no_selection()
@@ -490,6 +651,7 @@ class AnimationLibraryMainWindow(QMainWindow):
             self.library_manager.load_library()
             self.refresh_library_display()
             self.update_tag_filter()
+            self.update_folder_tree()
             
             count = len(self.library_manager.get_all_animations())
             self.status_bar.showMessage(f"Loaded {count} animations from library", 3000)
@@ -498,6 +660,21 @@ class AnimationLibraryMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load library: {e}")
             QMessageBox.warning(self, "Load Error", f"Failed to load animation library:\n{str(e)}")
+    
+    def update_folder_tree(self):
+        """Update the folder tree with current library structure"""
+        folder_tree = self.layout_manager.get_widget('folder_tree')
+        
+        # Get folder structure from library manager
+        folder_structure = self.library_manager.get_folder_structure()
+        print(f"🔄 Main window: Updating folder tree with structure: {list(folder_structure.keys())}")
+        
+        # Force refresh tree from library (important for deletions)
+        folder_tree.force_refresh_from_library(folder_structure)
+        
+        # Update folder counts
+        folder_stats = self.library_manager.get_folder_statistics()
+        folder_tree.update_folder_counts(folder_stats)
     
     def refresh_library_display(self):
         """Refresh the animation library display"""
@@ -514,16 +691,24 @@ class AnimationLibraryMainWindow(QMainWindow):
             card.preview_requested.connect(self.preview_animation)
             card.edit_requested.connect(self.edit_animation)
             card.delete_requested.connect(self.delete_animation)
+            card.move_to_folder_requested.connect(self.move_animation_to_folder)  # NEW: Connect folder move
             
             animation_grid.add_card(card)
         
         self.update_statistics()
+        self.update_folder_tree()
         print(f"🔄 Refreshed display: {len(animations)} animations shown")
     
     def get_filtered_animations(self) -> list:
         """Get animations filtered by current criteria"""
         all_animations = self.library_manager.get_all_animations()
         toolbar = self.layout_manager.get_widget('toolbar')
+        
+        # Debug: Show all animation folder paths
+        print(f"🔍 All animations and their folders:")
+        for anim in all_animations:
+            folder_path = getattr(anim, 'folder_path', 'Root')
+            print(f"   - {anim.name}: folder_path = '{folder_path}'")
         
         # Apply folder filter
         if self.current_filter != "all":
@@ -533,13 +718,24 @@ class AnimationLibraryMainWindow(QMainWindow):
             elif self.current_filter.startswith("storage:"):
                 storage_method = self.current_filter.split(":", 1)[1]
                 all_animations = [anim for anim in all_animations if anim.storage_method == storage_method]
-            elif self.current_filter.startswith("tag:"):
-                tag = self.current_filter.split(":", 1)[1]
-                all_animations = [anim for anim in all_animations if tag in anim.tags]
             elif self.current_filter.startswith("category:"):
-                category = self.current_filter.split(":", 1)[1].lower()
+                category = self.current_filter.split(":", 1)[1]
                 all_animations = [anim for anim in all_animations 
                                 if any(category in tag.lower() for tag in anim.tags)]
+            elif self.current_filter.startswith("folder:"):
+                folder_name = self.current_filter.split(":", 1)[1]
+                print(f"🔍 Filtering by folder: '{folder_name}'")
+                
+                # Filter animations by exact folder path match
+                filtered_animations = []
+                for anim in all_animations:
+                    anim_folder = getattr(anim, 'folder_path', 'Root')
+                    print(f"   - Checking {anim.name}: '{anim_folder}' == '{folder_name}' ? {anim_folder == folder_name}")
+                    if anim_folder == folder_name:
+                        filtered_animations.append(anim)
+                
+                all_animations = filtered_animations
+                print(f"🔍 Found {len(all_animations)} animations in folder '{folder_name}'")
         
         # Apply search filter
         search_text = toolbar.search_box.text().lower()
@@ -637,7 +833,7 @@ class AnimationLibraryMainWindow(QMainWindow):
 
 def main():
     """Main application entry point"""
-    print("🎬 Starting Animation Library - Modular Studio Layout...")
+    print("🎬 Starting Animation Library - Modular Studio Layout with Folders...")
     
     app = QApplication(sys.argv)
     
@@ -657,7 +853,7 @@ def main():
     y = (screen.height() - window_geo.height()) // 2
     window.move(x, y)
     
-    print("✅ Modular Animation Library started successfully!")
+    print("✅ Modular Animation Library with folder structure started successfully!")
     
     # Run application
     try:
