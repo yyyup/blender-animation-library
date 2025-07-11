@@ -275,53 +275,35 @@ class AnimationLibraryServer:
                 'error_type': 'extraction_failed'
             })
     
-    def update_animation_thumbnail(self, data):
-        """Update thumbnail for an existing animation"""
+    def update_animation_thumbnail_simple(self, data):
+        """Update thumbnail using the simple fix method"""
         try:
             animation_name = data.get('animation_name')
-            animation_id = data.get('animation_id')
             
-            if not animation_name and not animation_id:
+            if not animation_name:
                 self.send_message({
                     'type': 'error',
-                    'message': 'No animation name or ID provided for thumbnail update',
-                    'error_type': 'missing_animation_identifier'
+                    'message': 'No animation name provided for thumbnail update',
+                    'error_type': 'missing_animation_name'
                 })
                 return
             
-            # Use animation_name if provided, otherwise use animation_id
-            target_identifier = animation_name if animation_name else animation_id
-            print(f"🔄 Server: Updating thumbnail for animation: {target_identifier}")
+            print(f"🔄 Server: Using SIMPLE FIX for: {animation_name}")
             
-            # Call the update thumbnail operator - it will handle sending the success response
-            try:
-                if animation_name:
-                    result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_name)
-                else:
-                    result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_id)
-                
-                # The operator already sends the thumbnail_updated message on success
-                if result == {'FINISHED'}:
-                    print(f"✅ Server: Thumbnail update operator completed successfully for: {target_identifier}")
-                    # Don't send duplicate message - operator already sent thumbnail_updated
-                else:
-                    self.send_message({
-                        'type': 'error',
-                        'message': f'Failed to update thumbnail for animation {target_identifier}',
-                        'error_type': 'thumbnail_update_failed'
-                    })
-                    print(f"❌ Server: Thumbnail update failed for: {target_identifier}")
-                    
-            except Exception as op_error:
-                print(f"⚠️ Server: Operator call failed: {op_error}")
+            # Call the simple fix operator
+            result = bpy.ops.animationlibrary.update_thumbnail_simple(animation_name=animation_name)
+            
+            if result == {'FINISHED'}:
+                print(f"✅ Server: Simple fix completed successfully for: {animation_name}")
+            else:
                 self.send_message({
                     'type': 'error',
-                    'message': f'Thumbnail update operator failed: {str(op_error)}',
-                    'error_type': 'operator_failed'
+                    'message': f'Simple fix failed for animation {animation_name}',
+                    'error_type': 'thumbnail_update_failed'
                 })
                 
         except Exception as e:
-            print(f"❌ Server: Thumbnail update error: {e}")
+            print(f"❌ Server: Simple fix error: {e}")
             self.send_message({
                 'type': 'error',
                 'message': f'Thumbnail update error: {str(e)}',
