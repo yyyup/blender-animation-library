@@ -1,8 +1,8 @@
 """
 Animation Library Storage Management
-EXISTING SCRIPT: src/core/library_storage.py (ENHANCED UPDATE)
+COMPLETE FILE: src/core/library_storage.py
 
-Enhanced with .blend file management and migration capabilities.
+Enhanced with .blend file management, migration capabilities, and folder organization.
 """
 
 import json
@@ -12,13 +12,13 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import logging
 
-from .animation_data import AnimationMetadata, BlendFileReference, AnimationStorageDetector
+from core.animation_data import AnimationMetadata, BlendFileReference, AnimationStorageDetector
 
 logger = logging.getLogger(__name__)
 
 
 class AnimationLibraryManager:
-    """Enhanced animation library manager with .blend file support"""
+    """Enhanced animation library manager with .blend file support and folder organization"""
     
     def __init__(self, library_path: Optional[Path] = None):
         self.library_path = library_path or Path('./animation_library')
@@ -26,6 +26,7 @@ class AnimationLibraryManager:
         self.clips_folder = self.library_path / 'clips'  # Legacy JSON clips
         self.actions_folder = self.library_path / 'actions'  # NEW: .blend files
         self.thumbnails_folder = self.library_path / 'thumbnails'
+        self.folders_file = self.library_path / 'folders.json'  # NEW: Folder structure
         
         # In-memory storage
         self.animations: Dict[str, AnimationMetadata] = {}
@@ -38,7 +39,8 @@ class AnimationLibraryManager:
             "json_animations": 0,        # NEW: Track legacy JSON count
             "tags": set(),
             "rig_types": set(),
-            "storage_methods": ["blend_file", "json_keyframes"]  # NEW: Supported methods
+            "storage_methods": ["blend_file", "json_keyframes"],  # NEW: Supported methods
+            "folder_structure": {}  # NEW: Track folder organization
         }
         
         # Ensure directories exist
@@ -53,12 +55,15 @@ class AnimationLibraryManager:
         
         logger.info(f"📁 Library directories initialized: {self.library_path}")
     
-    def add_animation(self, animation: AnimationMetadata) -> bool:
-        """Add animation to library with .blend file path resolution"""
+    def add_animation(self, animation: AnimationMetadata, folder_path: str = "Root") -> bool:
+        """Add animation to library with folder organization"""
         try:
             # Update .blend file path if using blend storage
             if animation.is_blend_file_storage():
                 animation.update_blend_file_path(self.library_path)
+            
+            # Set folder for animation
+            animation.folder_path = folder_path
             
             # Store in memory
             self.animations[animation.id] = animation
@@ -70,7 +75,7 @@ class AnimationLibraryManager:
             self.save_library()
             
             storage_info = "(.blend file)" if animation.is_blend_file_storage() else "(JSON)"
-            logger.info(f"✅ Added animation: {animation.name} ({animation.id}) {storage_info}")
+            logger.info(f"✅ Added animation: {animation.name} ({animation.id}) to folder '{folder_path}' {storage_info}")
             return True
             
         except Exception as e:
@@ -135,6 +140,67 @@ class AnimationLibraryManager:
         
         return valid_animations
     
+    def get_animations_in_folder(self, folder_path: str) -> List[AnimationMetadata]:
+        """Get all animations in a specific folder"""
+        folder_animations = []
+        
+        for animation in self.animations.values():
+            animation_folder = getattr(animation, 'folder_path', 'Root')
+            
+            if folder_path == "Root":
+                # Show animations in root or without folder specified
+                if animation_folder in ["Root", None, ""]:
+                    folder_animations.append(animation)
+            else:
+                # Show animations in specific folder
+                if animation_folder == folder_path:
+                    folder_animations.append(animation)
+        
+        return folder_animations
+    
+    def move_animation_to_folder(self, animation_id: str, new_folder_path: str) -> bool:
+        """Move animation to a different folder"""
+        try:
+            if animation_id in self.animations:
+                old_folder = getattr(self.animations[animation_id], 'folder_path', 'Root')
+                self.animations[animation_id].folder_path = new_folder_path
+                
+                # Save changes
+                self.save_library()
+                
+                logger.info(f"📁 Moved animation {animation_id} from '{old_folder}' to '{new_folder_path}'")
+                return True
+            else:
+                logger.warning(f"Animation {animation_id} not found")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to move animation {animation_id}: {e}")
+            return False
+    
+    def get_folder_statistics(self) -> Dict[str, Dict[str, int]]:
+        """Get statistics for each folder"""
+        folder_stats = {}
+        
+        for animation in self.animations.values():
+            folder_path = getattr(animation, 'folder_path', 'Root')
+            
+            if folder_path not in folder_stats:
+                folder_stats[folder_path] = {
+                    'total': 0,
+                    'blend_files': 0,
+                    'json_files': 0
+                }
+            
+            folder_stats[folder_path]['total'] += 1
+            
+            if animation.is_blend_file_storage():
+                folder_stats[folder_path]['blend_files'] += 1
+            else:
+                folder_stats[folder_path]['json_files'] += 1
+        
+        return folder_stats
+    
     def search_animations(self, query: str) -> List[AnimationMetadata]:
         """Search animations by name, description, or tags"""
         query = query.lower()
@@ -194,7 +260,8 @@ class AnimationLibraryManager:
                 "tags": [],
                 "rig_types": [],
                 "storage_methods": {},
-                "performance_stats": {}
+                "performance_stats": {},
+                "folder_stats": {}
             }
         
         total_keyframes = sum(anim.total_keyframes for anim in all_animations)
@@ -246,7 +313,8 @@ class AnimationLibraryManager:
             "storage_stats": {
                 "total_blend_size_mb": total_blend_size,
                 "average_blend_size_mb": total_blend_size / len(blend_animations) if blend_animations else 0
-            }
+            },
+            "folder_stats": self.get_folder_statistics()
         }
     
     def save_library(self) -> bool:
@@ -618,6 +686,9 @@ class AnimationLibraryManager:
         
         self.library_metadata["tags"] = sorted(list(all_tags))
         self.library_metadata["rig_types"] = sorted(list(all_rig_types))
+        
+        # Update folder structure
+        self.library_metadata["folder_structure"] = self.get_folder_statistics()
     
     def _remove_animation_files(self, animation: AnimationMetadata):
         """Remove files associated with an animation"""
@@ -672,94 +743,3 @@ class AnimationLibraryManager:
             "orphaned_files_removed": 0,
             "missing_animations_removed": 0,
             "space_saved_mb": 0,
-            "operations": []
-        }
-        
-        # Remove animations with missing .blend files
-        missing_count = self.cleanup_missing_blend_files()
-        results["missing_animations_removed"] = missing_count
-        results["operations"].append(f"Removed {missing_count} animations with missing .blend files")
-        
-        # Remove orphaned .blend files
-        validation = self.validate_blend_files()
-        space_saved = 0
-        
-        for orphaned_file in validation["orphaned"]:
-            orphaned_path = self.actions_folder / orphaned_file
-            if orphaned_path.exists():
-                file_size = orphaned_path.stat().st_size
-                orphaned_path.unlink()
-                space_saved += file_size
-                results["orphaned_files_removed"] += 1
-        
-        results["space_saved_mb"] = space_saved / (1024 * 1024)
-        results["operations"].append(f"Removed {results['orphaned_files_removed']} orphaned .blend files")
-        
-        # Save optimized library
-        self.save_library()
-        
-        logger.info(f"🔧 Library optimized: {results}")
-        return results
-
-
-class BlendFileValidator:
-    """NEW: Utility class for validating .blend files"""
-    
-    @staticmethod
-    def validate_blend_file(file_path: Path) -> Dict[str, Any]:
-        """Validate a .blend file (requires Blender to be available)"""
-        # This would require Blender integration for full validation
-        # For now, just check file existence and basic properties
-        
-        if not file_path.exists():
-            return {"valid": False, "error": "File does not exist"}
-        
-        if file_path.suffix != '.blend':
-            return {"valid": False, "error": "Not a .blend file"}
-        
-        try:
-            file_size = file_path.stat().st_size
-            if file_size == 0:
-                return {"valid": False, "error": "Empty file"}
-            
-            # Basic file header check (Blender files start with "BLENDER")
-            with open(file_path, 'rb') as f:
-                header = f.read(7)
-                if header != b'BLENDER':
-                    return {"valid": False, "error": "Invalid .blend file header"}
-            
-            return {
-                "valid": True,
-                "size_mb": file_size / (1024 * 1024),
-                "modified": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
-            }
-            
-        except Exception as e:
-            return {"valid": False, "error": str(e)}
-    
-    @staticmethod
-    def batch_validate_blend_files(actions_folder: Path) -> Dict[str, Any]:
-        """Validate all .blend files in the actions folder"""
-        results = {
-            "total_files": 0,
-            "valid_files": 0,
-            "invalid_files": 0,
-            "total_size_mb": 0,
-            "errors": []
-        }
-        
-        for blend_file in actions_folder.glob("*.blend"):
-            results["total_files"] += 1
-            validation = BlendFileValidator.validate_blend_file(blend_file)
-            
-            if validation["valid"]:
-                results["valid_files"] += 1
-                results["total_size_mb"] += validation["size_mb"]
-            else:
-                results["invalid_files"] += 1
-                results["errors"].append({
-                    "file": blend_file.name,
-                    "error": validation["error"]
-                })
-        
-        return results
