@@ -102,6 +102,9 @@ class AnimationMetadata:
     # NEW: Folder organization
     folder_path: str = "Root"  # Folder path in library structure
     
+    # NEW: Thumbnail support
+    thumbnail: str = ""  # Relative path to thumbnail image (e.g., "thumbnails/animation_id.png")
+    
     # Storage method and .blend file support
     storage_method: str = "blend_file"  # "blend_file" or "json_keyframes"
     blend_reference: Optional[BlendFileReference] = None
@@ -139,6 +142,7 @@ class AnimationMetadata:
             "quality_rating": self.quality_rating,
             "usage_count": self.usage_count,
             "folder_path": self.folder_path,  # NEW: Include folder path
+            "thumbnail": self.thumbnail,  # NEW: Include thumbnail path
             "storage_method": self.storage_method,
             "extraction_time_seconds": self.extraction_time_seconds,
             "application_time_seconds": self.application_time_seconds
@@ -227,6 +231,7 @@ class AnimationMetadata:
             quality_rating=data.get('quality_rating', 0.0),
             usage_count=data.get('usage_count', 0),
             folder_path=data.get('folder_path', 'Root'),  # NEW: Load folder path
+            thumbnail=data.get('thumbnail', ''),  # NEW: Load thumbnail path
             storage_method=data.get('storage_method', 'json_keyframes'),  # Default to legacy
             blend_reference=blend_reference,
             extraction_time_seconds=data.get('extraction_time_seconds', 30.0),
@@ -236,6 +241,138 @@ class AnimationMetadata:
         # Restore original blender data if available (legacy support)
         if '_original_blender_data' in data:
             metadata._original_blender_data = data['_original_blender_data']
+        
+        return metadata
+    
+    @classmethod
+    def from_blender_data(cls, animation_data: Dict[str, Any], thumbnail_path: str = "") -> 'AnimationMetadata':
+        """
+        Create AnimationMetadata instance from Blender animation data.
+        
+        Args:
+            animation_data (Dict[str, Any]): Dictionary containing animation data from Blender extraction
+            thumbnail_path (str, optional): Relative path to thumbnail image
+            
+        Returns:
+            AnimationMetadata: New instance with mapped fields from animation_data
+        """
+        # Extract basic information
+        animation_id = animation_data.get('animation_id', animation_data.get('id', 'unknown'))
+        name = animation_data.get('action_name', animation_data.get('name', 'Unknown Animation'))
+        armature_name = animation_data.get('armature_name', 'Unknown Armature')
+        
+        # Frame range and duration
+        frame_range = tuple(animation_data.get('frame_range', [1, 1]))
+        duration_frames = float(animation_data.get('duration_frames', frame_range[1] - frame_range[0] + 1))
+        
+        # Bone and keyframe data
+        total_bones_animated = animation_data.get('total_bones_animated', 0)
+        total_keyframes = animation_data.get('total_keyframes', 0)
+        animated_bones = animation_data.get('animated_bones', [])
+        
+        # Create bone data structure
+        bone_data = {}
+        if 'bone_data' in animation_data:
+            # If detailed bone data is provided
+            for bone_name, bone_info in animation_data['bone_data'].items():
+                bone_anim = BoneAnimationData(bone_name=bone_name)
+                bone_anim.total_keyframes = bone_info.get('keyframe_count', 0)
+                
+                # Map channels if available
+                for channel_str in bone_info.get('channels', []):
+                    if '[' in channel_str and ']' in channel_str:
+                        last_bracket = channel_str.rfind('[')
+                        if last_bracket != -1:
+                            channel_name = channel_str[:last_bracket]
+                            array_index_str = channel_str[last_bracket+1:].rstrip(']')
+                            
+                            try:
+                                array_index = int(array_index_str)
+                                bone_anim.channels[channel_str] = ChannelData(
+                                    channel_name=channel_name,
+                                    array_index=array_index,
+                                    keyframe_count=bone_info.get('keyframe_count', 0),
+                                    frame_range=frame_range
+                                )
+                            except ValueError:
+                                bone_anim.channels[channel_str] = ChannelData(
+                                    channel_name=channel_str,
+                                    array_index=0,
+                                    keyframe_count=bone_info.get('keyframe_count', 0),
+                                    frame_range=frame_range
+                                )
+                    else:
+                        bone_anim.channels[channel_str] = ChannelData(
+                            channel_name=channel_str,
+                            array_index=0,
+                            keyframe_count=bone_info.get('keyframe_count', 0),
+                            frame_range=frame_range
+                        )
+                
+                bone_data[bone_name] = bone_anim
+        else:
+            # Create simplified bone data from animated_bones list
+            if animated_bones:
+                keyframes_per_bone = max(1, total_keyframes // max(1, len(animated_bones)))
+                for bone_name in animated_bones:
+                    bone_anim = BoneAnimationData(bone_name=bone_name)
+                    bone_anim.total_keyframes = keyframes_per_bone
+                    # Add basic transform channels
+                    for transform_type in ['location', 'rotation_euler', 'scale']:
+                        for i in range(3):
+                            channel_key = f"{transform_type}[{i}]"
+                            bone_anim.channels[channel_key] = ChannelData(
+                                channel_name=transform_type,
+                                array_index=i,
+                                keyframe_count=keyframes_per_bone // 3,
+                                frame_range=frame_range
+                            )
+                    bone_data[bone_name] = bone_anim
+        
+        # Detect rig type
+        rig_type = RigTypeDetector.detect_rig_type(armature_name, animated_bones)
+        
+        # Create .blend file reference if blend file data is present
+        blend_reference = None
+        if animation_data.get('storage_method') == 'blend_file' and 'blend_file' in animation_data:
+            blend_reference = BlendFileReference(
+                blend_file=animation_data['blend_file'],
+                blend_action_name=animation_data.get('blend_action_name', name),
+                file_size_mb=animation_data.get('file_size_mb', 0.0),
+                creation_date=animation_data.get('created_date', datetime.now().isoformat())
+            )
+        
+        # Generate automatic tags
+        tags = AnimationTagger.generate_tags(animation_data, bone_data)
+        
+        # Create the metadata instance
+        metadata = cls(
+            id=animation_id,
+            name=name,
+            description=animation_data.get('description', f"Animation extracted from {armature_name}"),
+            armature_source=armature_name,
+            frame_range=frame_range,
+            total_bones_animated=total_bones_animated,
+            total_keyframes=total_keyframes,
+            bone_data=bone_data,
+            created_date=animation_data.get('created_date', datetime.now().isoformat()),
+            rig_type=rig_type,
+            tags=tags,
+            category=animation_data.get('category', 'extracted'),
+            duration_frames=duration_frames,
+            author=animation_data.get('author', ''),
+            quality_rating=animation_data.get('quality_rating', 0.0),
+            usage_count=animation_data.get('usage_count', 0),
+            folder_path=animation_data.get('folder_path', 'Root'),
+            thumbnail=thumbnail_path,  # Use provided thumbnail path
+            storage_method=animation_data.get('storage_method', 'blend_file'),  # Default to blend_file for new extractions
+            blend_reference=blend_reference,
+            extraction_time_seconds=animation_data.get('extraction_time_seconds', 1.5),
+            application_time_seconds=animation_data.get('application_time_seconds', 0.5)
+        )
+        
+        # Store original blender data for reference if needed
+        metadata._original_blender_data = animation_data
         
         return metadata
     
@@ -351,6 +488,8 @@ class AnimationMetadata:
             author=data.get('author', ''),
             quality_rating=data.get('quality_rating', 0.0),
             usage_count=data.get('usage_count', 0),
+            folder_path=data.get('folder_path', 'Root'),  # NEW: Load folder path
+            thumbnail=data.get('thumbnail', ''),  # NEW: Load thumbnail path
             storage_method=data.get('storage_method', 'json_keyframes'),  # Default to legacy
             blend_reference=blend_reference,
             extraction_time_seconds=data.get('extraction_time_seconds', 30.0),
@@ -360,6 +499,138 @@ class AnimationMetadata:
         # Restore original blender data if available (legacy support)
         if '_original_blender_data' in data:
             metadata._original_blender_data = data['_original_blender_data']
+        
+        return metadata
+    
+    @classmethod
+    def from_blender_data(cls, animation_data: Dict[str, Any], thumbnail_path: str = "") -> 'AnimationMetadata':
+        """
+        Create AnimationMetadata instance from Blender animation data.
+        
+        Args:
+            animation_data (Dict[str, Any]): Dictionary containing animation data from Blender extraction
+            thumbnail_path (str, optional): Relative path to thumbnail image
+            
+        Returns:
+            AnimationMetadata: New instance with mapped fields from animation_data
+        """
+        # Extract basic information
+        animation_id = animation_data.get('animation_id', animation_data.get('id', 'unknown'))
+        name = animation_data.get('action_name', animation_data.get('name', 'Unknown Animation'))
+        armature_name = animation_data.get('armature_name', 'Unknown Armature')
+        
+        # Frame range and duration
+        frame_range = tuple(animation_data.get('frame_range', [1, 1]))
+        duration_frames = float(animation_data.get('duration_frames', frame_range[1] - frame_range[0] + 1))
+        
+        # Bone and keyframe data
+        total_bones_animated = animation_data.get('total_bones_animated', 0)
+        total_keyframes = animation_data.get('total_keyframes', 0)
+        animated_bones = animation_data.get('animated_bones', [])
+        
+        # Create bone data structure
+        bone_data = {}
+        if 'bone_data' in animation_data:
+            # If detailed bone data is provided
+            for bone_name, bone_info in animation_data['bone_data'].items():
+                bone_anim = BoneAnimationData(bone_name=bone_name)
+                bone_anim.total_keyframes = bone_info.get('keyframe_count', 0)
+                
+                # Map channels if available
+                for channel_str in bone_info.get('channels', []):
+                    if '[' in channel_str and ']' in channel_str:
+                        last_bracket = channel_str.rfind('[')
+                        if last_bracket != -1:
+                            channel_name = channel_str[:last_bracket]
+                            array_index_str = channel_str[last_bracket+1:].rstrip(']')
+                            
+                            try:
+                                array_index = int(array_index_str)
+                                bone_anim.channels[channel_str] = ChannelData(
+                                    channel_name=channel_name,
+                                    array_index=array_index,
+                                    keyframe_count=bone_info.get('keyframe_count', 0),
+                                    frame_range=frame_range
+                                )
+                            except ValueError:
+                                bone_anim.channels[channel_str] = ChannelData(
+                                    channel_name=channel_str,
+                                    array_index=0,
+                                    keyframe_count=bone_info.get('keyframe_count', 0),
+                                    frame_range=frame_range
+                                )
+                    else:
+                        bone_anim.channels[channel_str] = ChannelData(
+                            channel_name=channel_str,
+                            array_index=0,
+                            keyframe_count=bone_info.get('keyframe_count', 0),
+                            frame_range=frame_range
+                        )
+                
+                bone_data[bone_name] = bone_anim
+        else:
+            # Create simplified bone data from animated_bones list
+            if animated_bones:
+                keyframes_per_bone = max(1, total_keyframes // max(1, len(animated_bones)))
+                for bone_name in animated_bones:
+                    bone_anim = BoneAnimationData(bone_name=bone_name)
+                    bone_anim.total_keyframes = keyframes_per_bone
+                    # Add basic transform channels
+                    for transform_type in ['location', 'rotation_euler', 'scale']:
+                        for i in range(3):
+                            channel_key = f"{transform_type}[{i}]"
+                            bone_anim.channels[channel_key] = ChannelData(
+                                channel_name=transform_type,
+                                array_index=i,
+                                keyframe_count=keyframes_per_bone // 3,
+                                frame_range=frame_range
+                            )
+                    bone_data[bone_name] = bone_anim
+        
+        # Detect rig type
+        rig_type = RigTypeDetector.detect_rig_type(armature_name, animated_bones)
+        
+        # Create .blend file reference if blend file data is present
+        blend_reference = None
+        if animation_data.get('storage_method') == 'blend_file' and 'blend_file' in animation_data:
+            blend_reference = BlendFileReference(
+                blend_file=animation_data['blend_file'],
+                blend_action_name=animation_data.get('blend_action_name', name),
+                file_size_mb=animation_data.get('file_size_mb', 0.0),
+                creation_date=animation_data.get('created_date', datetime.now().isoformat())
+            )
+        
+        # Generate automatic tags
+        tags = AnimationTagger.generate_tags(animation_data, bone_data)
+        
+        # Create the metadata instance
+        metadata = cls(
+            id=animation_id,
+            name=name,
+            description=animation_data.get('description', f"Animation extracted from {armature_name}"),
+            armature_source=armature_name,
+            frame_range=frame_range,
+            total_bones_animated=total_bones_animated,
+            total_keyframes=total_keyframes,
+            bone_data=bone_data,
+            created_date=animation_data.get('created_date', datetime.now().isoformat()),
+            rig_type=rig_type,
+            tags=tags,
+            category=animation_data.get('category', 'extracted'),
+            duration_frames=duration_frames,
+            author=animation_data.get('author', ''),
+            quality_rating=animation_data.get('quality_rating', 0.0),
+            usage_count=animation_data.get('usage_count', 0),
+            folder_path=animation_data.get('folder_path', 'Root'),
+            thumbnail=thumbnail_path,  # Use provided thumbnail path
+            storage_method=animation_data.get('storage_method', 'blend_file'),  # Default to blend_file for new extractions
+            blend_reference=blend_reference,
+            extraction_time_seconds=animation_data.get('extraction_time_seconds', 1.5),
+            application_time_seconds=animation_data.get('application_time_seconds', 0.5)
+        )
+        
+        # Store original blender data for reference if needed
+        metadata._original_blender_data = animation_data
         
         return metadata
     
