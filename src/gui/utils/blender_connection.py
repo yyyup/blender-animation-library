@@ -252,21 +252,16 @@ class BlenderConnectionHandler(QObject):
     
     def _on_thumbnail_updated(self, message: Message):
         """Handle thumbnail updated response from Blender"""
-        # Handle both possible message formats from server.py
-        if "status" in message.data and message.data["status"] == "thumbnail_updated":
+        try:
             animation_name = message.data.get("animation_name")
-            if animation_name:
-                logger.info(f"Thumbnail updated for animation: {animation_name}")
+            status = message.data.get("status")
+            
+            if animation_name and status == "success":
+                logger.info(f"✅ Thumbnail updated successfully for: {animation_name}")
                 self.thumbnail_updated.emit(animation_name)
-                # Call refresh_thumbnail function if it exists
-                self.refresh_thumbnail(animation_name)
-        else:
-            # Handle legacy format
-            animation_name = message.data.get("animation_name")
-            if animation_name:
-                logger.info(f"Thumbnail updated for animation: {animation_name}")
-                self.thumbnail_updated.emit(animation_name)
-                self.refresh_thumbnail(animation_name)
+                print(f"📤 Emitted thumbnail_updated signal for: {animation_name}")
+        except Exception as e:
+            logger.error(f"❌ Error handling thumbnail update response: {e}")
     
     def refresh_thumbnail(self, animation_name: str):
         """Refresh thumbnail for the specified animation"""

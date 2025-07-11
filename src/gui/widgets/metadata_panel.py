@@ -137,7 +137,7 @@ class MetadataPanel(QWidget):
         update_btn = QPushButton("Update Thumbnail")
         update_btn.setObjectName("updateThumbnailButton")
         update_btn.setFixedHeight(28)
-        update_btn.clicked.connect(lambda: self.request_thumbnail_update(animation))
+        update_btn.clicked.connect(self.on_update_thumbnail_clicked)
         update_btn.setStyleSheet("""
             #updateThumbnailButton {
                 background-color: #4a90e2;
@@ -406,6 +406,11 @@ class MetadataPanel(QWidget):
         
         painter.end()
         preview_label.setPixmap(pixmap)
+    
+    def on_update_thumbnail_clicked(self):
+        """Handle update thumbnail button click"""
+        if self.current_animation:
+            self.request_thumbnail_update(self.current_animation)
     
     def request_thumbnail_update(self, animation: AnimationMetadata):
         """Request thumbnail update for the current animation"""

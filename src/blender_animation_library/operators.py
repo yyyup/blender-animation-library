@@ -1,8 +1,8 @@
 """
 Animation Library Operators
-NEW SCRIPT: src/blender_addon/operators.py
+Complete operators.py with thumbnail workflow fix
 
-Professional operators for animation library management.
+Professional operators for animation library management with working thumbnail updates.
 """
 
 import bpy
@@ -130,172 +130,132 @@ def capture_thumbnail(output_path: str) -> bool:
 
 def capture_viewport_thumbnail(output_path: str) -> bool:
     """
-    Capture only the 3D Viewport area (not the full Blender UI) as a .png image.
-    Uses offscreen rendering for clean viewport-only capture at 256x256 resolution.
+    Capture the 3D Viewport as a thumbnail using a reliable method.
+    This function uses render.opengl with proper context to capture only the viewport.
     
     Args:
-        output_path (str): Full path where the thumbnail image should be saved (including .png extension)
+        output_path (str): Full path where the thumbnail should be saved (including .png extension)
         
     Returns:
         bool: True if thumbnail was captured successfully, False otherwise
     """
     try:
-        # Ensure the output directory exists
+        import bpy
+        from pathlib import Path
+        
         output_path_obj = Path(output_path)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
         
-        # Get the current 3D viewport area and region
-        viewport_area = None
-        viewport_region = None
-        viewport_space = None
+        print(f"🎬 Starting viewport capture to: {output_path}")
         
+        # Find the 3D viewport
+        viewport_area = None
         for area in bpy.context.screen.areas:
             if area.type == 'VIEW_3D':
                 viewport_area = area
-                for region in area.regions:
-                    if region.type == 'WINDOW':
-                        viewport_region = region
-                        break
-                for space in area.spaces:
-                    if space.type == 'VIEW_3D':
-                        viewport_space = space
-                        break
                 break
         
-        if not viewport_area or not viewport_region or not viewport_space:
-            print("⚠️ No 3D viewport with valid region found for thumbnail capture")
+        if not viewport_area:
+            print("❌ No 3D viewport found")
             return False
         
-        # Store original viewport settings for restoration
+        # Get the viewport space
+        viewport_space = None
+        for space in viewport_area.spaces:
+            if space.type == 'VIEW_3D':
+                viewport_space = space
+                break
+        
+        if not viewport_space:
+            print("❌ No 3D viewport space found")
+            return False
+        
+        # Store original settings to restore later
+        scene = bpy.context.scene
+        original_filepath = scene.render.filepath
+        original_engine = scene.render.engine
+        original_resolution_x = scene.render.resolution_x
+        original_resolution_y = scene.render.resolution_y
+        original_resolution_percentage = scene.render.resolution_percentage
+        original_film_transparent = scene.render.film_transparent
+        
+        # Store viewport settings
         original_shading = viewport_space.shading.type
         original_overlays = viewport_space.overlay.show_overlays
         original_extras = viewport_space.overlay.show_extras
         original_cursor = viewport_space.overlay.show_cursor
         original_outline = viewport_space.overlay.show_outline_selected
-        original_wireframes = viewport_space.overlay.show_wireframes
+        original_text = viewport_space.overlay.show_text
         
         try:
-            # Optimize viewport settings for clean thumbnail
+            # Set up render settings for thumbnail
+            scene.render.engine = 'BLENDER_EEVEE'
+            scene.render.resolution_x = 512
+            scene.render.resolution_y = 512
+            scene.render.resolution_percentage = 100
+            scene.render.film_transparent = False
+            scene.render.filepath = str(output_path_obj.with_suffix(''))  # Blender adds .png
+            
+            # Optimize viewport for clean capture
             if viewport_space.shading.type == 'WIREFRAME':
                 viewport_space.shading.type = 'SOLID'
             
-            # Clean up overlays for professional thumbnail
+            # Clean overlays
             viewport_space.overlay.show_overlays = True
             viewport_space.overlay.show_extras = False
             viewport_space.overlay.show_cursor = False
             viewport_space.overlay.show_outline_selected = False
-            viewport_space.overlay.show_wireframes = False
+            viewport_space.overlay.show_text = False
             
-            # Force viewport update
+            # Force scene update
             bpy.context.view_layer.update()
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
             
-            # Override context for the specific 3D viewport area and region
-            with bpy.context.temp_override(
-                area=viewport_area, 
-                region=viewport_region,
-                space_data=viewport_space
-            ):
-                # Method 1: Try OpenGL viewport render (preferred - captures only viewport)
-                try:
-                    # Save current render settings
-                    scene = bpy.context.scene
-                    original_filepath = scene.render.filepath
-                    original_engine = scene.render.engine
-                    original_resolution_x = scene.render.resolution_x
-                    original_resolution_y = scene.render.resolution_y
-                    original_film_transparent = scene.render.film_transparent
-                    
-                    # Set render settings optimized for 256x256 thumbnails
-                    scene.render.engine = 'BLENDER_EEVEE_NEXT' if hasattr(bpy.app, 'version') and bpy.app.version >= (4, 0, 0) else 'BLENDER_EEVEE'
-                    scene.render.resolution_x = 256
-                    scene.render.resolution_y = 256
-                    scene.render.film_transparent = False  # Solid background for thumbnails
-                    scene.render.filepath = str(output_path_obj.with_suffix(''))  # Remove extension, Blender adds it
-                    
-                    # Use OpenGL render to capture viewport view
-                    bpy.ops.render.opengl(write_still=True, view_context=True)
-                    
-                    # Restore original render settings immediately
-                    scene.render.filepath = original_filepath
-                    scene.render.engine = original_engine
-                    scene.render.resolution_x = original_resolution_x
-                    scene.render.resolution_y = original_resolution_y
-                    scene.render.film_transparent = original_film_transparent
-                    
-                    print("✅ OpenGL viewport render successful")
-                    
-                except Exception as render_error:
-                    print(f"⚠️ OpenGL viewport render failed: {render_error}")
-                    
-                    # Method 2: Fallback to direct region screenshot if available
-                    try:
-                        # This is a more direct approach but less reliable across Blender versions
-                        import gpu
-                        import bgl
-                        from gpu_extras.presets import draw_texture_2d
-                        
-                        # Create offscreen buffer
-                        offscreen = gpu.types.GPUOffScreen(256, 256)
-                        
-                        with offscreen.bind():
-                            # Clear and setup viewport
-                            bgl.glClear(bgl.GL_COLOR_BUFFER_BIT | bgl.GL_DEPTH_BUFFER_BIT)
-                            
-                            # Get view matrix from viewport
-                            view_matrix = viewport_space.region_3d.view_matrix
-                            projection_matrix = viewport_space.region_3d.window_matrix
-                            
-                            # Draw the scene (this is complex and may not work in all cases)
-                            # For now, fall back to screen capture
-                            raise Exception("Offscreen rendering not fully implemented")
-                        
-                    except Exception as offscreen_error:
-                        print(f"⚠️ Offscreen render failed: {offscreen_error}")
-                        
-                        # Method 3: Final fallback to screen.screenshot with area bounds
-                        try:
-                            # Calculate viewport bounds for more precise capture
-                            x = viewport_area.x
-                            y = viewport_area.y
-                            width = viewport_area.width
-                            height = viewport_area.height
-                            
-                            print(f"📐 Viewport bounds: x={x}, y={y}, w={width}, h={height}")
-                            
-                            # Use screen.screenshot as final fallback
-                            bpy.ops.screen.screenshot(filepath=str(output_path), check_existing=False)
-                            print("⚠️ Used fallback screenshot method (may include UI elements)")
-                            
-                        except Exception as screenshot_error:
-                            print(f"⚠️ Screenshot fallback failed: {screenshot_error}")
-                            return False
-        
+            print("🎬 Executing OpenGL render...")
+            
+            # Override context and capture
+            with bpy.context.temp_override(area=viewport_area):
+                result = bpy.ops.render.opengl(write_still=True, view_context=True)
+                print(f"🎬 OpenGL render result: {result}")
+            
         finally:
-            # Always restore original viewport settings
+            # Always restore original settings
+            scene.render.filepath = original_filepath
+            scene.render.engine = original_engine
+            scene.render.resolution_x = original_resolution_x
+            scene.render.resolution_y = original_resolution_y
+            scene.render.resolution_percentage = original_resolution_percentage
+            scene.render.film_transparent = original_film_transparent
+            
             viewport_space.shading.type = original_shading
             viewport_space.overlay.show_overlays = original_overlays
             viewport_space.overlay.show_extras = original_extras
             viewport_space.overlay.show_cursor = original_cursor
             viewport_space.overlay.show_outline_selected = original_outline
-            viewport_space.overlay.show_wireframes = original_wireframes
+            viewport_space.overlay.show_text = original_text
         
-        # Verify thumbnail was created successfully
+        # Check if the file was created
         if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
-            print(f"✅ Viewport thumbnail captured: {output_path}")
+            print(f"✅ Viewport thumbnail captured successfully: {output_path}")
             return True
-        else:
-            # Check if Blender added frame numbers or different extension
-            potential_files = list(output_path_obj.parent.glob(f"{output_path_obj.stem}*.png"))
-            if potential_files:
-                actual_file = potential_files[0]
-                # Rename to the expected filename
+        
+        # Check for files with frame numbers (Blender sometimes adds 0001)
+        potential_files = list(output_path_obj.parent.glob(f"{output_path_obj.stem}*.png"))
+        if potential_files:
+            # Find the most recently created file
+            actual_file = max(potential_files, key=lambda f: f.stat().st_mtime)
+            if actual_file != output_path_obj:
+                # Remove old file if exists
+                if output_path_obj.exists():
+                    output_path_obj.unlink()
+                # Rename to expected filename
                 actual_file.rename(output_path_obj)
-                print(f"✅ Viewport thumbnail captured and renamed: {output_path}")
-                return True
-            else:
-                print(f"⚠️ Viewport thumbnail file was not created: {output_path}")
-                return False
-                
+            print(f"✅ Viewport thumbnail captured and renamed: {output_path}")
+            return True
+        
+        print(f"❌ No thumbnail file was created: {output_path}")
+        return False
+        
     except Exception as e:
         print(f"❌ Viewport thumbnail capture failed: {e}")
         import traceback
@@ -553,7 +513,6 @@ class ANIMLIB_OT_validate_library(Operator):
             return {'CANCELLED'}
 
 
-
 class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
     """Update thumbnail for animation by name - called from GUI"""
     bl_idname = "animationlibrary.update_thumbnail"
@@ -561,12 +520,11 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
     bl_description = "Capture a new viewport thumbnail for the specified animation"
     bl_options = {'REGISTER', 'UNDO'}
     
-    # Property for animation name (required) - using proper bpy.props syntax
-    animation_name = bpy.props.StringProperty(
+    animation_name: StringProperty(
         name="Animation Name",
         description="Name of the animation to update thumbnail for",
         default=""
-    )
+    )  # type: ignore
     
     def execute(self, context):
         # Get library path from addon preferences
@@ -578,24 +536,60 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
                 self.report({'ERROR'}, "No animation name provided")
                 return {'CANCELLED'}
             
-            # Use animation name directly
             target_name = self.animation_name
+            print(f"🎬 STEP 1: Updating thumbnail for animation: {target_name}")
             
             # Sanitize the animation name for filename
             safe_name = target_name.replace(" ", "_").replace("|", "_")
+            for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*']:
+                safe_name = safe_name.replace(char, '_')
             thumbnail_filename = f"{safe_name}.png"
             thumbnail_path = Path(library_path) / "thumbnails" / thumbnail_filename
             
-            # Capture viewport thumbnail using enhanced function
+            print(f"🎬 STEP 2: Thumbnail path: {thumbnail_path}")
+            
+            # Ensure thumbnails directory exists
+            thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Remove existing file if it exists to ensure fresh capture
+            if thumbnail_path.exists():
+                thumbnail_path.unlink()
+                print(f"🗑️ Removed existing thumbnail: {thumbnail_path}")
+            
+            # Capture viewport thumbnail
             self.report({'INFO'}, f"Capturing viewport thumbnail for: {target_name}")
-            print(f"🎬 Capturing thumbnail: {target_name} -> {thumbnail_path}")
+            print(f"🎬 STEP 3: Capturing viewport thumbnail...")
             
             thumbnail_success = capture_viewport_thumbnail(str(thumbnail_path))
+            print(f"🎬 STEP 4: Capture result: {thumbnail_success}")
             
             if thumbnail_success:
-                self.report({'INFO'}, f"📸 Thumbnail updated successfully: {thumbnail_filename}")
-                print(f"✅ Thumbnail updated for: {target_name}")
-                return {'FINISHED'}
+                # Verify file exists and has content
+                if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
+                    relative_path = f"thumbnails/{thumbnail_filename}"
+                    
+                    # Send notification to GUI via server in the exact format expected
+                    from . import server
+                    if server.animation_server and server.animation_server.is_running:
+                        server.animation_server.send_message({
+                            'type': 'thumbnail_updated',
+                            'animation_name': target_name,
+                            'thumbnail': relative_path,
+                            'status': 'success'
+                        })
+                        print(f"📤 STEP 5: Sent thumbnail_updated notification to GUI")
+                        print(f"   - animation_name: {target_name}")
+                        print(f"   - thumbnail: {relative_path}")
+                    else:
+                        print("⚠️ Server not running - GUI notification skipped")
+                    
+                    self.report({'INFO'}, f"✅ Thumbnail updated: {thumbnail_filename}")
+                    print(f"✅ Thumbnail successfully updated for: {target_name}")
+                    return {'FINISHED'}
+                else:
+                    self.report({'ERROR'}, f"Thumbnail file missing or empty: {thumbnail_path}")
+                    print(f"❌ Thumbnail file missing or empty: {thumbnail_path}")
+                    return {'CANCELLED'}
             else:
                 self.report({'ERROR'}, f"Failed to capture viewport thumbnail for: {target_name}")
                 print(f"❌ Thumbnail capture failed for: {target_name}")
@@ -611,7 +605,6 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
 
 # List of operator classes for registration
 classes = [
-    ANIMATIONLIBRARY_OT_update_thumbnail,
     ANIMLIB_OT_start_server,
     ANIMLIB_OT_stop_server,
     ANIMLIB_OT_test_connection,
@@ -619,6 +612,7 @@ classes = [
     ANIMLIB_OT_get_scene_info,
     ANIMLIB_OT_optimize_library,
     ANIMLIB_OT_validate_library,
+    ANIMATIONLIBRARY_OT_update_thumbnail,
 ]
 
 
@@ -626,7 +620,6 @@ def register():
     """Register all operator classes"""
     for cls in classes:
         bpy.utils.register_class(cls)
-
 
 
 def unregister():

@@ -993,12 +993,12 @@ class AnimationLibraryMainWindow(QMainWindow):
             logger.info(f"Thumbnail updated for: {animation_name}")
             
             # Refresh all animation cards that match this animation
-            animation_grid = self.layout_manager.get_component('animation_grid')
+            animation_grid = self.layout_manager.get_widget('animation_grid')
             if animation_grid and hasattr(animation_grid, 'refresh_thumbnail'):
                 animation_grid.refresh_thumbnail(animation_name)
             
             # Refresh the metadata panel if it's showing this animation
-            metadata_panel = self.layout_manager.get_component('metadata_panel')
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
             if metadata_panel and hasattr(metadata_panel, 'refresh_thumbnail'):
                 metadata_panel.refresh_thumbnail(animation_name)
             
