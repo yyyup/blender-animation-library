@@ -124,8 +124,73 @@ class BlendFileAnimationStorage:
         # Capture thumbnail
         thumbnail_path = self._capture_animation_thumbnail(animation_id)
         
-        # Gather comprehensive animation statistics
+        # --- Automatic Playblast Capture ---
+        preview_dir = self.library_path / "previews"
+        preview_dir.mkdir(exist_ok=True)
+        preview_filename = f"{animation_id}.mp4"
+        preview_path = preview_dir / preview_filename
         frame_range = self._get_action_frame_range(action)
+        start_frame, end_frame = frame_range
+        scene = bpy.context.scene
+        original_settings = {
+            'filepath': scene.render.filepath,
+            'engine': scene.render.engine,
+            'resolution_x': scene.render.resolution_x,
+            'resolution_y': scene.render.resolution_y,
+            'fps': scene.render.fps,
+            'fps_base': scene.render.fps_base,
+            'image_settings': scene.render.image_settings.file_format,
+            'ffmpeg_format': scene.render.ffmpeg.format if hasattr(scene.render, 'ffmpeg') else None,
+            'ffmpeg_codec': scene.render.ffmpeg.codec if hasattr(scene.render, 'ffmpeg') else None,
+            'ffmpeg_video_bitrate': scene.render.ffmpeg.video_bitrate if hasattr(scene.render, 'ffmpeg') else None,
+        }
+        try:
+            scene.frame_start = start_frame
+            scene.frame_end = end_frame
+            scene.render.resolution_x = 512
+            scene.render.resolution_y = 512
+            scene.render.fps = 24
+            scene.render.fps_base = 1.0
+            scene.render.filepath = str(preview_path.with_suffix("").absolute())
+            scene.render.image_settings.file_format = 'FFMPEG'
+            if hasattr(scene.render, 'ffmpeg'):
+                scene.render.ffmpeg.format = 'MPEG4'
+                scene.render.ffmpeg.codec = 'H264'
+                scene.render.ffmpeg.video_bitrate = 6000
+            # Use EEVEE or fallback
+            available_engines = [item.identifier for item in bpy.types.Scene.bl_rna.properties['render'].bl_rna.properties['engine'].enum_items]
+            if 'BLENDER_EEVEE_NEXT' in available_engines:
+                scene.render.engine = 'BLENDER_EEVEE_NEXT'
+            elif 'BLENDER_EEVEE' in available_engines:
+                scene.render.engine = 'BLENDER_EEVEE'
+            else:
+                scene.render.engine = 'BLENDER_WORKBENCH'
+            # Playblast capture
+            print(f"🎬 Capturing playblast preview: {preview_path} [{start_frame}-{end_frame}]")
+            bpy.ops.render.opengl(animation=True, view_context=True)
+            print(f"✅ Playblast preview saved: {preview_path}")
+            relative_preview_path = f"previews/{preview_filename}"
+        except Exception as e:
+            print(f"⚠️ Playblast preview failed: {e}")
+            relative_preview_path = ""
+        finally:
+            # Restore original render settings
+            scene.render.filepath = original_settings['filepath']
+            scene.render.engine = original_settings['engine']
+            scene.render.resolution_x = original_settings['resolution_x']
+            scene.render.resolution_y = original_settings['resolution_y']
+            scene.render.fps = original_settings['fps']
+            scene.render.fps_base = original_settings['fps_base']
+            scene.render.image_settings.file_format = original_settings['image_settings']
+            if hasattr(scene.render, 'ffmpeg'):
+                if original_settings['ffmpeg_format'] is not None:
+                    scene.render.ffmpeg.format = original_settings['ffmpeg_format']
+                if original_settings['ffmpeg_codec'] is not None:
+                    scene.render.ffmpeg.codec = original_settings['ffmpeg_codec']
+                if original_settings['ffmpeg_video_bitrate'] is not None:
+                    scene.render.ffmpeg.video_bitrate = original_settings['ffmpeg_video_bitrate']
+
+        # Gather comprehensive animation statistics
         bone_count = self._count_animated_bones(action)
         keyframe_count = sum(len(fcurve.keyframe_points) for fcurve in action.fcurves)
         file_size_mb = self._get_file_size_mb(blend_path)
@@ -140,6 +205,7 @@ class BlendFileAnimationStorage:
             'blend_file': blend_filename,
             'blend_action_name': action.name,
             'thumbnail': thumbnail_path,  # Add thumbnail path to metadata
+            'preview': relative_preview_path,  # Add preview path to metadata
             'frame_range': frame_range,
             'total_bones_animated': bone_count,
             'total_keyframes': keyframe_count,
@@ -157,6 +223,7 @@ class BlendFileAnimationStorage:
         print(f"✅ Professional extraction with thumbnail complete:")
         print(f"   📁 File: {blend_filename} ({file_size_mb:.2f} MB)")
         print(f"   📸 Thumbnail: {thumbnail_path or 'Not captured'}")
+        print(f"   🎬 Preview: {relative_preview_path or 'Not captured'}")
         print(f"   🦴 Bones: {bone_count} animated")
         print(f"   🔑 Keyframes: {keyframe_count}")
         print(f"   ⚡ Performance: 97% faster than traditional")

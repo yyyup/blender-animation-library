@@ -15,21 +15,26 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, 
     QScrollArea, QTextEdit, QGridLayout, QPushButton
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QUrl, QTimer
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QBrush
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimediaWidgets import QVideoWidget
 
 from core.animation_data import AnimationMetadata
 
 
 class MetadataPanel(QWidget):
-    """Professional metadata panel matching Studio Library style"""
+    """Professional metadata panel matching Studio Library style with video preview support"""
     
-    # Signal for requesting thumbnail updates
+    # Signals for requesting thumbnail updates
     thumbnail_update_requested = Signal(str)  # animation_name
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_animation = None
+        self.media_player = None
+        self.video_widget = None
+        self.audio_output = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -107,39 +112,36 @@ class MetadataPanel(QWidget):
         self.content_layout.addStretch()
     
     def show_animation_details(self, animation: AnimationMetadata):
-        """Show detailed metadata for selected animation with large preview"""
+        """Show detailed metadata for selected animation with video/image preview"""
         self.current_animation = animation
         self.clear_content()
         
-        # Large preview image at the top
+        # Large preview section at the top (video or image)
         preview_group = self.create_info_group("Preview")
         preview_layout = QVBoxLayout(preview_group)
         
-        # Create large thumbnail preview (300x300)
-        preview_label = QLabel()
-        preview_label.setObjectName("large_preview")
-        preview_label.setFixedSize(300, 300)
-        preview_label.setAlignment(Qt.AlignCenter)
-        preview_label.setStyleSheet("""
-            QLabel {
-                border: none;
-                border-radius: 8px;
-                background-color: #2e2e2e;
-            }
-        """)
+        # Check if animation has preview video
+        has_video_preview = self.check_for_video_preview(animation)
         
-        # Load large preview image
-        self.load_large_preview(preview_label, animation)
+        if has_video_preview:
+            # Create video player
+            self.create_video_player(preview_layout, animation)
+        else:
+            # Create static image preview
+            self.create_image_preview(preview_layout, animation)
         
-        preview_layout.addWidget(preview_label, 0, Qt.AlignHCenter)
+        # Buttons section
+        buttons_layout = QHBoxLayout()
         
-        # Add update thumbnail button
-        update_btn = QPushButton("Update Thumbnail")
-        update_btn.setObjectName("updateThumbnailButton")
-        update_btn.setFixedHeight(28)
-        update_btn.clicked.connect(self.on_update_thumbnail_clicked)
-        update_btn.setStyleSheet("""
-            #updateThumbnailButton {
+        # Update thumbnail button
+        update_thumbnail_btn = QPushButton("Update Thumbnail")
+        update_thumbnail_btn.setObjectName("updateThumbnailButton")
+        update_thumbnail_btn.setFixedHeight(28)
+        update_thumbnail_btn.clicked.connect(self.on_update_thumbnail_clicked)
+        
+        # Style button
+        button_style = """
+            QPushButton {
                 background-color: #4a90e2;
                 color: white;
                 border: none;
@@ -147,17 +149,22 @@ class MetadataPanel(QWidget):
                 border-radius: 4px;
                 font-weight: bold;
                 font-size: 10px;
+                margin: 2px;
             }
             
-            #updateThumbnailButton:hover {
+            QPushButton:hover {
                 background-color: #357abd;
             }
             
-            #updateThumbnailButton:pressed {
+            QPushButton:pressed {
                 background-color: #2968a3;
             }
-        """)
-        preview_layout.addWidget(update_btn, 0, Qt.AlignHCenter)
+        """
+        
+        update_thumbnail_btn.setStyleSheet(button_style)
+        
+        buttons_layout.addWidget(update_thumbnail_btn)
+        preview_layout.addLayout(buttons_layout)
         
         self.content_layout.addWidget(preview_group)
         
@@ -525,6 +532,170 @@ class MetadataPanel(QWidget):
             self.show_large_placeholder_icon(preview_label)
             print(f"⚠️ METADATA: Using large placeholder icon")
     
+    def check_for_video_preview(self, animation):
+        """Check if animation has a video preview available"""
+        try:
+            # Check if animation has preview field in metadata
+            if hasattr(animation, 'preview') and animation.preview:
+                preview_path = Path("animation_library") / animation.preview
+                
+                # Check for MP4 video
+                if preview_path.suffix.lower() == '.mp4' and preview_path.exists():
+                    return True
+                
+                # Check for frame sequence directory
+                if preview_path.is_dir() and any(preview_path.glob("*.png")):
+                    return True
+            
+            # Fallback: check previews directory for files matching animation name
+            animation_id = getattr(animation, 'id', animation.name)
+            previews_dir = Path("animation_library") / "previews"
+            
+            if previews_dir.exists():
+                # Check for MP4 file
+                mp4_files = list(previews_dir.glob(f"{animation_id}*.mp4"))
+                if mp4_files:
+                    return True
+                
+                # Check for frame sequence directories
+                for item in previews_dir.iterdir():
+                    if item.is_dir() and animation_id in item.name:
+                        if any(item.glob("*.png")):
+                            return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"Error checking for video preview: {e}")
+            return False
+    
+    def create_video_player(self, layout, animation):
+        """Create video player widget for animation preview"""
+        try:
+            # Create video widget
+            self.video_widget = QVideoWidget()
+            self.video_widget.setFixedSize(300, 300)
+            self.video_widget.setStyleSheet("""
+                QVideoWidget {
+                    border: none;
+                    border-radius: 8px;
+                    background-color: #2e2e2e;
+                }
+            """)
+            
+            # Create media player
+            self.media_player = QMediaPlayer()
+            self.audio_output = QAudioOutput()
+            self.media_player.setAudioOutput(self.audio_output)
+            self.media_player.setVideoOutput(self.video_widget)
+            
+            # Find and load preview video
+            preview_path = self.get_preview_video_path(animation)
+            if preview_path and preview_path.exists():
+                if preview_path.suffix.lower() == '.mp4':
+                    # Load MP4 video
+                    media_url = QUrl.fromLocalFile(str(preview_path.absolute()))
+                    self.media_player.setSource(media_url)
+                    self.media_player.setLoops(QMediaPlayer.Infinite)  # Loop playback
+                    
+                    # Auto-play when loaded
+                    self.media_player.mediaStatusChanged.connect(self.on_media_status_changed)
+                    
+                    print(f"📹 Loaded video preview: {preview_path.name}")
+                else:
+                    # For frame sequences, show first frame as static image
+                    self.create_image_preview(layout, animation)
+                    return
+            else:
+                # Fallback to image preview
+                self.create_image_preview(layout, animation)
+                return
+            
+            layout.addWidget(self.video_widget, 0, Qt.AlignHCenter)
+            
+        except Exception as e:
+            print(f"Error creating video player: {e}")
+            # Fallback to image preview
+            self.create_image_preview(layout, animation)
+    
+    def create_image_preview(self, layout, animation):
+        """Create static image preview widget"""
+        preview_label = QLabel()
+        preview_label.setObjectName("large_preview")
+        preview_label.setFixedSize(300, 300)
+        preview_label.setAlignment(Qt.AlignCenter)
+        preview_label.setStyleSheet("""
+            QLabel {
+                border: none;
+                border-radius: 8px;
+                background-color: #2e2e2e;
+            }
+        """)
+        
+        # Load large preview image
+        self.load_large_preview(preview_label, animation)
+        
+        layout.addWidget(preview_label, 0, Qt.AlignHCenter)
+    
+    def get_preview_video_path(self, animation):
+        """Get the path to the preview video for an animation"""
+        try:
+            # Check metadata for preview path
+            if hasattr(animation, 'preview') and animation.preview:
+                preview_path = Path("animation_library") / animation.preview
+                if preview_path.exists():
+                    return preview_path
+            
+            # Fallback: search previews directory
+            animation_id = getattr(animation, 'id', animation.name)
+            previews_dir = Path("animation_library") / "previews"
+            
+            if previews_dir.exists():
+                # Look for MP4 file
+                mp4_files = list(previews_dir.glob(f"{animation_id}*.mp4"))
+                if mp4_files:
+                    return mp4_files[0]  # Return most recent
+                
+                # Look for frame sequence directory
+                for item in previews_dir.iterdir():
+                    if item.is_dir() and animation_id in item.name:
+                        if any(item.glob("*.png")):
+                            return item
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error getting preview video path: {e}")
+            return None
+    
+    def on_media_status_changed(self, status):
+        """Handle media player status changes"""
+        try:
+            if status == QMediaPlayer.LoadedMedia:
+                # Start playback when media is loaded
+                self.media_player.play()
+                print("🎬 Started video preview playback")
+        except Exception as e:
+            print(f"Error handling media status change: {e}")
+    
+    def cleanup_media_player(self):
+        """Clean up media player resources"""
+        try:
+            if self.media_player:
+                self.media_player.stop()
+                self.media_player.setSource(QUrl())
+                self.media_player = None
+            
+            if self.audio_output:
+                self.audio_output = None
+            
+            if self.video_widget:
+                self.video_widget.setParent(None)
+                self.video_widget = None
+                
+        except Exception as e:
+            print(f"Error cleaning up media player: {e}")
+
     def create_info_group(self, title: str) -> QGroupBox:
         """Create a styled info group"""
         group = QGroupBox(title)
