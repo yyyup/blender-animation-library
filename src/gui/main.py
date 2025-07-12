@@ -139,6 +139,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.animation_moved.connect(self.on_animation_moved)  # NEW: Handle drag & drop
         folder_tree.folder_created.connect(self.on_folder_created)  # NEW: Handle folder creation
         folder_tree.folder_deleted.connect(self.on_folder_deleted)  # NEW: Handle folder deletion
+        folder_tree.folder_moved.connect(self.on_folder_moved)  # NEW: Handle folder reorganization
         
         # Maya-style enhancement signal connections
         folder_tree.multi_folder_selected.connect(self.on_multi_folder_selected)
@@ -1142,6 +1143,35 @@ class AnimationLibraryMainWindow(QMainWindow):
         
         # Show success message
         self.status_bar.showMessage("Folder organization updated", 3000)
+    
+    def on_folder_moved(self, source_folder: str, target_folder: str):
+        """Handle folder reorganization from tree widget (drag-and-drop nesting)"""
+        try:
+            print(f"📁 Main window: Moving folder '{source_folder}' to '{target_folder}'")
+            
+            # Move folder through library manager
+            success = self.library_manager.move_folder(source_folder, target_folder)
+            
+            if success:
+                print(f"✅ Main window: Folder move successful")
+                
+                # Update folder tree display to reflect new hierarchy
+                self.update_folder_tree()
+                
+                # Refresh animation display to show updated paths
+                self.refresh_library_display()
+                
+                # Show success message
+                self.status_bar.showMessage(f"Moved folder '{source_folder}' into '{target_folder}'", 3000)
+                print(f"✅ Main window: Folder moved successfully: '{source_folder}' → '{target_folder}'")
+            else:
+                print(f"❌ Main window: Folder move failed")
+                QMessageBox.warning(self, "Folder Move Failed", f"Failed to move folder '{source_folder}' to '{target_folder}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to move folder {source_folder} to {target_folder}: {e}")
+            QMessageBox.warning(self, "Folder Move Error", f"Error moving folder:\n{str(e)}")
+
 
 def main():
     """Main application entry point"""
