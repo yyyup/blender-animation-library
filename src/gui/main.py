@@ -445,12 +445,25 @@ class AnimationLibraryMainWindow(QMainWindow):
         print(f"📁 Folder filter applied: {filter_str}")
         print(f"📁 Previous filter was: {getattr(self, 'current_filter', 'none')}")
         
+        # PRESERVE current animation selection
+        current_animation = getattr(self, 'current_animation', None)
+        if current_animation:
+            print(f"🔍 DEBUG: Preserving animation selection: {current_animation.name}")
+        
         # Set the new filter
         self.current_filter = filter_str
         
         # CRITICAL FIX: Uncomment refresh to apply folder filtering
         print(f"🔄 Refreshing library display to apply folder filter: {filter_str}")
         self.refresh_library_display()
+        
+        # RESTORE animation selection after folder change
+        if current_animation:
+            self.current_animation = current_animation
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            if metadata_panel:
+                metadata_panel.show_animation_details(current_animation)
+                print(f"✅ DEBUG: Restored animation details for: {current_animation.name}")
         
         # Update status with detailed debug info
         if filter_str == "all":

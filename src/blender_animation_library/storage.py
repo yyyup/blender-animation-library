@@ -253,15 +253,17 @@ class BlendFileAnimationStorage:
                 scene.render.ffmpeg.video_bitrate = 6000
                 print(f"🔍 DEBUG: FFmpeg settings configured")
             
-            # Use EEVEE or fallback
-            available_engines = [item.identifier for item in bpy.types.Scene.bl_rna.properties['render'].bl_rna.properties['engine'].enum_items]
-            if 'BLENDER_EEVEE_NEXT' in available_engines:
-                scene.render.engine = 'BLENDER_EEVEE_NEXT'
-            elif 'BLENDER_EEVEE' in available_engines:
+            # Use EEVEE or fallback with simple approach
+            try:
                 scene.render.engine = 'BLENDER_EEVEE'
-            else:
-                scene.render.engine = 'BLENDER_WORKBENCH'
-            print(f"🔍 DEBUG: Render engine set to: {scene.render.engine}")
+                print("🔍 DEBUG: Set render engine to EEVEE")
+            except:
+                try:
+                    scene.render.engine = 'BLENDER_WORKBENCH'
+                    print("🔍 DEBUG: Fallback to WORKBENCH engine")
+                except:
+                    print("🔍 DEBUG: Using default render engine")
+            print(f"🔍 DEBUG: Final render engine: {scene.render.engine}")
             
             # Playblast capture
             print(f"🎬 DEBUG: Starting playblast capture: {preview_path} [{start_frame}-{end_frame}]")
