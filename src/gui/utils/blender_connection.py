@@ -143,6 +143,12 @@ class BlenderConnectionHandler(QObject):
             return self.connection.update_thumbnail(animation_id)
         return False
     
+    def update_preview(self, animation_id: str) -> bool:
+        """Request preview update for a specific animation"""
+        if self.connection:
+            return self.connection.update_thumbnail(animation_id)  # Use same backend method for now
+        return False
+    
     def send_update_thumbnail(self, animation_name: str, folder_path: str = "Root") -> bool:
         """Send update thumbnail command to Blender with folder path"""
         if not self.connection:
@@ -150,22 +156,31 @@ class BlenderConnectionHandler(QObject):
             return False
         
         try:
-            # Create the message with folder path information
-            message_data = {
-                "command": "update_thumbnail", 
-                "animation_name": animation_name,
-                "folder_path": folder_path
-            }
-            
             # Use the Message.command method to create the message with folder path
-            from core.communication import Message
             message = Message.command("update_thumbnail", animation_name=animation_name, folder_path=folder_path)
             
-            logger.info(f"Sending thumbnail update request for: {animation_name} in folder: {folder_path}")
+            logger.info("Sending thumbnail update request for: %s in folder: %s", animation_name, folder_path)
             return self.connection.send_message(message)
             
         except Exception as e:
-            logger.error(f"Failed to send thumbnail update: {e}")
+            logger.error("Failed to send thumbnail update: %s", e)
+            return False
+    
+    def send_update_preview(self, animation_name: str, folder_path: str = "Root") -> bool:
+        """Send update preview command to Blender with folder path"""
+        if not self.connection:
+            logger.error("No connection to Blender")
+            return False
+        
+        try:
+            # Use the Message.command method to create the message with folder path
+            message = Message.command("update_preview", animation_name=animation_name, folder_path=folder_path)
+            
+            logger.info("Sending preview update request for: %s in folder: %s", animation_name, folder_path)
+            return self.connection.send_message(message)
+            
+        except Exception as e:
+            logger.error("Failed to send preview update: %s", e)
             return False
     
     def _normalize_animation_data(self, animation_data: Dict[str, Any]) -> Dict[str, Any]:

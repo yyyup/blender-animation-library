@@ -39,34 +39,67 @@ class ANIMATIONLIBRARY_OT_update_preview(Operator):
                 self.report({'ERROR'}, "No animation name provided")
                 return {'CANCELLED'}
             
-            target_name = self.animation_name
-            print(f"🎬 STEP 1: Updating video preview for animation: {target_name}")
+            animation_id = self.animation_name
+            folder_path = self.folder_path
             
-            # Find existing preview file by searching the previews directory
-            preview_path = self.find_existing_preview_file(library_path, target_name, self.folder_path)
+            # Build file paths
+            preview_dir = Path(library_path) / "previews" / folder_path
+            preview_dir.mkdir(parents=True, exist_ok=True)
             
-            if not preview_path:
-                print(f"❌ No existing preview found for: {target_name}")
-                self.report({'ERROR'}, f"No existing preview found for: {target_name}")
+            final_filename = f"{animation_id}.mp4"
+            temp_filename = f"{animation_id}.tmp.mp4"
+            
+            final_path = preview_dir / final_filename
+            temp_path = preview_dir / temp_filename
+            
+            print(f"🎬 STEP 1: Animation ID: {animation_id}")
+            print(f"🎬 STEP 2: Final filename: {final_filename}")
+            print(f"🎬 STEP 3: Temp filename: {temp_filename}")
+            print(f"🎬 STEP 4: Full paths - Final: {final_path}")
+            print(f"🎬 STEP 5: Full paths - Temp: {temp_path}")
+            
+            # STEP 1: Generate to temporary file (no conflicts)
+            print(f"🎬 STEP 6: Creating temporary preview...")
+            preview_success = self.capture_video_preview(str(temp_path), context)
+            
+            if not preview_success or not temp_path.exists():
+                print(f"❌ Failed to create temporary preview")
+                self.report({'ERROR'}, "Failed to create temporary preview")
                 return {'CANCELLED'}
             
-            print(f"🎬 STEP 2: Found existing preview: {preview_path}")
+            print(f"✅ Temporary preview created: {temp_path.name} ({temp_path.stat().st_size} bytes)")
             
-            # Remove the existing file
-            if preview_path.exists():
-                preview_path.unlink()
-                print(f"🗑️ Removed existing preview: {preview_path.name}")
+            # STEP 2: Request GUI to release the final file
+            print(f"🔓 STEP 7: Requesting file release from GUI...")
+            self.request_gui_file_release(animation_id)
             
-            # Capture new video preview to the SAME path
-            print(f"🎬 STEP 3: Capturing new video preview...")
-            preview_success = self.capture_video_preview(str(preview_path), context)
+            # STEP 3: Brief wait for GUI to release
+            import time
+            time.sleep(0.5)
             
-            if preview_success and preview_path.exists() and preview_path.stat().st_size > 0:
-                # Calculate relative path from library root
-                relative_path = str(preview_path.relative_to(Path(library_path)))
+            # STEP 4: Atomic replacement
+            try:
+                if final_path.exists():
+                    final_path.unlink()
+                    print(f"🗑️ Deleted old file: {final_filename}")
                 
-                print(f"✅ Successfully updated existing preview")
-                print(f"   📁 File: {preview_path.name}")
+                temp_path.rename(final_path)
+                print(f"✅ Renamed temp file to: {final_filename}")
+                
+            except Exception as e:
+                print(f"❌ File replacement failed: {e}")
+                # Cleanup temp file
+                if temp_path.exists():
+                    temp_path.unlink()
+                self.report({'ERROR'}, f"File replacement failed: {str(e)}")
+                return {'CANCELLED'}
+            
+            # STEP 5: Verify final file
+            if final_path.exists() and final_path.stat().st_size > 0:
+                # Calculate relative path for notification
+                relative_path = f"previews/{folder_path}/{final_filename}"
+                
+                print(f"✅ Preview update successful: {final_filename} ({final_path.stat().st_size} bytes)")
                 print(f"   📂 Relative path: {relative_path}")
                 
                 # Send notification to GUI
@@ -74,23 +107,25 @@ class ANIMATIONLIBRARY_OT_update_preview(Operator):
                 if server.animation_server and server.animation_server.is_running:
                     server.animation_server.send_message({
                         'type': 'preview_updated',
-                        'animation_name': target_name,
+                        'animation_name': animation_id,
                         'preview': relative_path,
-                        'status': 'success'
+                        'status': 'success',
+                        'strategy': 'temporary_file'
                     })
                     print(f"📤 Sent notification to GUI")
                 
-                self.report({'INFO'}, f"✅ Updated existing preview: {preview_path.name}")
+                self.report({'INFO'}, f"Preview updated: {final_filename}")
                 return {'FINISHED'}
             else:
-                self.report({'ERROR'}, f"Failed to capture new video preview")
+                print(f"❌ Final file verification failed")
+                self.report({'ERROR'}, "Final file verification failed")
                 return {'CANCELLED'}
                 
         except Exception as e:
-            self.report({'ERROR'}, f"Preview update failed: {str(e)}")
             print(f"❌ Preview update error: {e}")
             import traceback
             traceback.print_exc()
+            self.report({'ERROR'}, f"Preview update failed: {str(e)}")
             return {'CANCELLED'}
     
     def find_existing_preview_file(self, library_path: str, animation_name: str, folder_path: str):
@@ -140,7 +175,7 @@ class ANIMATIONLIBRARY_OT_update_preview(Operator):
         try:
             scene = context.scene
             
-            # Store original settings
+            # Store original settings to restore later
             original_settings = {
                 'filepath': scene.render.filepath,
                 'engine': scene.render.engine,
@@ -148,12 +183,15 @@ class ANIMATIONLIBRARY_OT_update_preview(Operator):
                 'resolution_y': scene.render.resolution_y,
                 'fps': scene.render.fps,
                 'fps_base': scene.render.fps_base,
-                'image_settings': scene.render.image_settings.file_format,
-                'ffmpeg_format': getattr(scene.render.ffmpeg, 'format', None) if hasattr(scene.render, 'ffmpeg') else None,
-                'ffmpeg_codec': getattr(scene.render.ffmpeg, 'codec', None) if hasattr(scene.render, 'ffmpeg') else None,
+                'image_settings_format': scene.render.image_settings.file_format,
             }
             
-            # Set preview settings
+            # Also store FFmpeg settings if available
+            if hasattr(scene.render, 'ffmpeg'):
+                original_settings['ffmpeg_format'] = getattr(scene.render.ffmpeg, 'format', None)
+                original_settings['ffmpeg_codec'] = getattr(scene.render.ffmpeg, 'codec', None)
+            
+            # Configure render settings for video preview (512x512, MP4, H264)
             scene.render.resolution_x = 512
             scene.render.resolution_y = 512
             scene.render.fps = 24
@@ -161,38 +199,80 @@ class ANIMATIONLIBRARY_OT_update_preview(Operator):
             scene.render.filepath = Path(output_path).with_suffix("").as_posix()
             scene.render.image_settings.file_format = 'FFMPEG'
             
+            # Configure FFmpeg settings for MP4/H264 output
             if hasattr(scene.render, 'ffmpeg'):
                 scene.render.ffmpeg.format = 'MPEG4'
                 scene.render.ffmpeg.codec = 'H264'
             
-            # Use appropriate render engine
-            available_engines = [item.identifier for item in bpy.types.Scene.bl_rna.properties['render'].bl_rna.properties['engine'].enum_items]
-            if 'BLENDER_EEVEE_NEXT' in available_engines:
-                scene.render.engine = 'BLENDER_EEVEE_NEXT'
-            elif 'BLENDER_EEVEE' in available_engines:
-                scene.render.engine = 'BLENDER_EEVEE'
-            else:
+            # Use appropriate render engine (try Eevee first, fallback to Workbench)
+            try:
+                available_engines = [item.identifier for item in bpy.types.Scene.bl_rna.properties['render'].bl_rna.properties['engine'].enum_items]
+                if 'BLENDER_EEVEE_NEXT' in available_engines:
+                    scene.render.engine = 'BLENDER_EEVEE_NEXT'
+                elif 'BLENDER_EEVEE' in available_engines:
+                    scene.render.engine = 'BLENDER_EEVEE'
+                else:
+                    scene.render.engine = 'BLENDER_WORKBENCH'
+            except:
+                # Simple fallback if engine detection fails
                 scene.render.engine = 'BLENDER_WORKBENCH'
             
-            # Capture playblast
-            print(f"🎬 Capturing playblast preview: {output_path}")
+            print(f"🎬 Capturing OpenGL playblast to: {output_path}")
+            print(f"   📐 Resolution: {scene.render.resolution_x}x{scene.render.resolution_y}")
+            print(f"   🎥 Format: {scene.render.image_settings.file_format}")
+            print(f"   🎨 Engine: {scene.render.engine}")
+            
+            # Capture the animation using OpenGL playblast
             bpy.ops.render.opengl(animation=True, view_context=True)
             
-            # Restore original settings
-            for key, value in original_settings.items():
-                if value is not None:
-                    if '.' in key:
-                        obj, attr = key.rsplit('.', 1)
-                        setattr(getattr(scene.render, obj), attr, value)
-                    else:
-                        setattr(scene.render, key, value)
+            # Restore original render settings
+            scene.render.filepath = original_settings['filepath']
+            scene.render.engine = original_settings['engine']
+            scene.render.resolution_x = original_settings['resolution_x']
+            scene.render.resolution_y = original_settings['resolution_y']
+            scene.render.fps = original_settings['fps']
+            scene.render.fps_base = original_settings['fps_base']
+            scene.render.image_settings.file_format = original_settings['image_settings_format']
             
-            print(f"✅ Preview capture completed: {output_path}")
-            return True
+            # Restore FFmpeg settings if they were stored
+            if hasattr(scene.render, 'ffmpeg'):
+                if original_settings.get('ffmpeg_format') is not None:
+                    scene.render.ffmpeg.format = original_settings['ffmpeg_format']
+                if original_settings.get('ffmpeg_codec') is not None:
+                    scene.render.ffmpeg.codec = original_settings['ffmpeg_codec']
             
+            # Verify the output file was created successfully
+            output_file = Path(output_path)
+            if output_file.exists() and output_file.stat().st_size > 0:
+                print(f"✅ Video preview created successfully: {output_file.name} ({output_file.stat().st_size} bytes)")
+                return True
+            else:
+                print(f"❌ Video preview file was not created or is empty")
+                return False
+                
         except Exception as e:
             print(f"❌ Error capturing video preview: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+        
+    def request_gui_file_release(self, animation_id: str):
+        """Request GUI to release video file so it can be replaced"""
+        try:
+            import time
+            from .. import server
+            if server.animation_server and server.animation_server.is_running:
+                message = {
+                    "type": "release_file_request", 
+                    "animation_id": animation_id,
+                    "timestamp": time.time()
+                }
+                server.animation_server.send_message(message)
+                print(f"📤 Requested file release for: {animation_id}")
+            else:
+                print(f"⚠️ No server connection - cannot request file release")
+        except Exception as e:
+            print(f"⚠️ Could not request file release: {e}")
 
 
 def register():

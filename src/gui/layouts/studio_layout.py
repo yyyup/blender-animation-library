@@ -60,6 +60,9 @@ class StudioLayoutManager:
         main_splitter.setCollapsible(0, False)  # Don't collapse folder panel
         main_splitter.setCollapsible(2, False)  # Don't collapse metadata panel
         
+        # Connect signal for releasing all video files from cards
+        self.setup_signal_connections()
+        
         print("✅ Studio Library layout created!")
         return central_widget
     
@@ -307,3 +310,17 @@ class StudioLayoutManager:
     def get_widget(self, name: str):
         """Get a widget by name"""
         return self.widgets.get(name)
+    
+    def setup_signal_connections(self):
+        """Setup signal connections between widgets"""
+        # Connect metadata panel signal to release all card videos  
+        metadata_panel = self.widgets.get('metadata_panel')
+        animation_grid = self.widgets.get('animation_grid')
+        
+        if metadata_panel and animation_grid:
+            metadata_panel.release_all_video_files_requested.connect(
+                animation_grid.release_all_video_files
+            )
+            print("✅ Connected metadata panel to animation grid for video file release")
+        else:
+            print("⚠️ Could not connect video file release signals - missing widgets")

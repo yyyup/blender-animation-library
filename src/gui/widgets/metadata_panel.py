@@ -29,6 +29,7 @@ class MetadataPanel(QWidget):
     
     # Signals for requesting preview updates
     preview_update_requested = Signal(str, str)  # animation_id, folder_path
+    release_all_video_files_requested = Signal()  # Signal to all cards to release files
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -125,8 +126,21 @@ class MetadataPanel(QWidget):
     def show_animation_details(self, animation: AnimationMetadata):
         """Show detailed metadata for selected animation with video/image preview"""
         print(f"📋 DEBUG: show_animation_details called for: {animation.name}")
-        print(f"📋 DEBUG: Animation ID: {getattr(animation, 'id', 'NO_ID')}")
-        print(f"📋 DEBUG: Animation type: {type(animation)}")
+        
+        # DEBUG: Print all available animation fields
+        print(f"📋 DEBUG: Animation fields:")
+        if hasattr(animation, 'id'):
+            print(f"  - id: '{animation.id}'")
+        if hasattr(animation, 'name'):
+            print(f"  - name: '{animation.name}'")
+        if hasattr(animation, 'animation_id'):
+            print(f"  - animation_id: '{getattr(animation, 'animation_id', 'NOT_FOUND')}'")
+        
+        # Also check the original animation data dict if available
+        if hasattr(animation, '__dict__'):
+            for key, value in animation.__dict__.items():
+                if 'id' in key.lower():
+                    print(f"  - {key}: '{value}'")
         
         self.current_animation = animation
         self.clear_content()
@@ -446,16 +460,93 @@ class MetadataPanel(QWidget):
         preview_label.setPixmap(pixmap)
     
     def on_update_preview_clicked(self):
-        """Handle update preview button click"""
+        """Handle update preview button click with coordinated file release"""
         if self.current_animation:
-            self.request_preview_update(self.current_animation)
-            print("🖱️ DEBUG: Update preview button clicked")
-            if self.current_animation:
-                print(f"🎬 DEBUG: Current animation: {self.current_animation.name}")
-                print(f"🎬 DEBUG: Animation ID: {getattr(self.current_animation, 'id', 'NO_ID')}")
-                self.request_preview_update(self.current_animation)
+            print("🖱️ TEMPORARY FILE STRATEGY: Update preview button clicked")
+            print(f"🎬 Current animation: {self.current_animation.name}")
+            
+            # STEP 1: Release the video file FIRST
+            if self.media_player:
+                self.media_player.stop()
+                self.media_player.setSource(QUrl())  # Release file handle
+                print(f"� Released video file for update")
+            
+            # STEP 2: Signal all cards to release their video files too
+            self.release_all_video_files_requested.emit()
+            print(f"� Signaled all cards to release video files")
+            
+            # STEP 2: Small delay then send update command
+            QTimer.singleShot(300, self.send_update_command)
+        else:
+            print("❌ No current animation selected")
+    
+    def send_update_command(self):
+        """Send the actual update command after file release"""
+        
+        # Get the CORRECT animation ID - try multiple fields
+        animation_id = None
+        
+        # Method 1: Try the 'id' field first (most reliable)
+        if hasattr(self.current_animation, 'id') and self.current_animation.id:
+            animation_id = self.current_animation.id
+            print(f"📋 METADATA: Using animation.id: {animation_id}")
+        
+        # Method 2: Fall back to name if id is not available
+        elif hasattr(self.current_animation, 'name') and self.current_animation.name:
+            animation_id = self.current_animation.name
+            print(f"📋 METADATA: Using animation.name: {animation_id}")
+        
+        # Method 3: Check if there's a specific animation_id field
+        elif hasattr(self.current_animation, 'animation_id') and self.current_animation.animation_id:
+            animation_id = self.current_animation.animation_id
+            print(f"📋 METADATA: Using animation.animation_id: {animation_id}")
+        
+        if not animation_id:
+            print(f"❌ METADATA: Could not determine animation ID")
+            return
+        
+        # Debug: Print what we're sending
+        print(f"📤 METADATA: Sending update command for animation ID: '{animation_id}'")
+        
+        folder_path = getattr(self.current_animation, 'folder_path', 'Root')
+        print(f"📤 METADATA: Folder path: '{folder_path}'")
+        
+        self.preview_update_requested.emit(animation_id, folder_path)
+        
+        # Reload after longer delay
+        QTimer.singleShot(4000, self.reload_current_preview)
+    
+    def release_video_file(self):
+        """Release video file handles to prevent locking during updates"""
+        try:
+            print("🔓 DEBUG: Starting video file release")
+            
+            if self.media_player:
+                print("🔓 DEBUG: Stopping media player")
+                self.media_player.stop()
+                
+                print("🔓 DEBUG: Clearing media player source")
+                self.media_player.setSource(QUrl())  # Critical: Release file handle
+                
+                print("🔓 DEBUG: Media player file handles released")
             else:
-                print("❌ DEBUG: No current animation selected")
+                print("🔓 DEBUG: No media player to release")
+                
+        except Exception as e:
+            print(f"⚠️ DEBUG: Error releasing video file: {e}")
+    
+    def reload_current_preview(self):
+        """Reload the current animation's preview after update"""
+        try:
+            print("🔄 METADATA: Reloading preview after update")
+            if self.current_animation:
+                print(f"🔄 Reloading preview for: {self.current_animation.name}")
+                self.load_video_preview(self.current_animation)
+                print("✅ Preview reload completed")
+            else:
+                print("❌ No current animation to reload")
+        except Exception as e:
+            print(f"⚠️ Error reloading preview: {e}")
     
     def request_preview_update(self, animation: AnimationMetadata):
         """Request preview update for the current animation"""
@@ -469,13 +560,16 @@ class MetadataPanel(QWidget):
         self.preview_update_requested.emit(animation_id, folder_path)
     
     def refresh_preview(self, animation_identifier: str):
-        """Refresh the video preview for the specified animation"""
+        """Refresh the video preview for the specified animation with proper file release"""
         if self.current_animation:
             # Check if this matches by ID or name
             animation_id = getattr(self.current_animation, 'id', self.current_animation.name)
             if animation_identifier == animation_id or animation_identifier == self.current_animation.name:
                 
                 print(f"🔄 METADATA: Refreshing video preview for ID: {animation_identifier}")
+                
+                # Release video file first to prevent locking
+                self.release_video_file()
                 
                 # Reload the video preview
                 self.load_video_preview(self.current_animation)

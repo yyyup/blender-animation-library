@@ -494,7 +494,17 @@ class AnimationLibraryMainWindow(QMainWindow):
         print(f"📁 DEBUG: Folder selection complete, filter applied: {self.current_filter}")
     
     def on_animation_selected(self, animation_data: dict):
-        """Handle animation selection"""
+        """Handle animation selection from cards"""
+        
+        # DEBUG: Print the raw animation data
+        print(f"🎬 MAIN: Animation selected with data keys: {list(animation_data.keys())}")
+        
+        # Check what ID fields are available
+        id_fields = ['id', 'animation_id', 'name']
+        for field in id_fields:
+            if field in animation_data:
+                print(f"🎬 MAIN: {field}: '{animation_data[field]}'")
+        
         print(f"📨 DEBUG: on_animation_selected called with: {animation_data.get('name', 'Unknown')}")
         
         try:
@@ -550,8 +560,8 @@ class AnimationLibraryMainWindow(QMainWindow):
             ):
                 animation_name = self.current_animation.name
             
-            # Send the update request to Blender with folder path (temporarily using thumbnail method)
-            success = self.blender_connection.send_update_thumbnail(animation_name, folder_path)
+            # Send the update request to Blender with folder path (using new preview method)
+            success = self.blender_connection.send_update_preview(animation_name, folder_path)
             print(f"📤 DEBUG: Send result: {success}")
             
             if success:
