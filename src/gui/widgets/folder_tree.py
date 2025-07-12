@@ -390,8 +390,8 @@ class FolderTreeWidget(QWidget):
         custom_folders = folder_structure.get("Custom Folders", {}).get("children", {})
         print(f"📁 TREE: Found {len(custom_folders)} custom folders: {list(custom_folders.keys())}")
         
-        # Reset structure with root
-        self.folder_structure = {
+        # Check if structure actually changed
+        new_structure = {
             "🎬 All Animations": {"type": "root", "filter": "all", "count": 0}
         }
         
@@ -399,11 +399,84 @@ class FolderTreeWidget(QWidget):
         for folder_key, folder_data in custom_folders.items():
             if isinstance(folder_data, dict):
                 folder_data["type"] = "folder"
-                self.folder_structure[folder_key] = folder_data
-                print(f"📁 TREE: Added folder: {folder_key}")
+                new_structure[folder_key] = folder_data
                 
-        print(f"📁 TREE: Final structure has {len(self.folder_structure)} folders")
-        self.refresh_tree()
+        # Only refresh if structure actually changed
+        if self._structure_changed(new_structure):
+            print(f"📁 TREE: Structure changed, refreshing tree")
+            self.folder_structure = new_structure
+            self.refresh_tree()
+        else:
+            print(f"📁 TREE: Structure unchanged, skipping refresh")
+            
+    def _structure_changed(self, new_structure: Dict[str, Any]) -> bool:
+        """Check if folder structure has actually changed"""
+        if len(new_structure) != len(self.folder_structure):
+            return True
+            
+        for key, data in new_structure.items():
+            if key not in self.folder_structure:
+                return True
+            old_data = self.folder_structure[key]
+            # Check if filter or type changed
+            if (data.get("filter") != old_data.get("filter") or 
+                data.get("type") != old_data.get("type")):
+                return True
+                
+        return False
+        
+    def update_folder_counts_only(self, folder_stats: Dict[str, Dict[str, int]]):
+        """Update folder counts WITHOUT rebuilding the tree"""
+        print(f"📊 TREE: Updating counts only, no refresh")
+        
+        # Update root count
+        total_animations = sum(stats.get("total", 0) for stats in folder_stats.values())
+        self.folder_structure["🎬 All Animations"]["count"] = total_animations
+        
+        # Update folder counts in structure
+        for folder_key, folder_data in self.folder_structure.items():
+            if folder_key != "🎬 All Animations" and folder_data.get("type") == "folder":
+                clean_path = self._extract_clean_path(folder_key)
+                if clean_path in folder_stats:
+                    folder_data["count"] = folder_stats[clean_path]["total"]
+                    
+        # Update display text without rebuilding tree
+        self._update_display_counts_only()
+        
+    def _update_display_counts_only(self):
+        """Update display text of existing items without rebuilding"""
+        def update_item_counts(item):
+            item_data = item.data(0, Qt.UserRole)
+            if item_data:
+                if item_data.get("type") == "root":
+                    count = self.folder_structure["🎬 All Animations"].get("count", 0)
+                    item.setText(0, f"🎬 All Animations ({count})" if count > 0 else "🎬 All Animations")
+                elif item_data.get("type") == "folder":
+                    filter_str = item_data.get("filter", "")
+                    if filter_str.startswith("folder:"):
+                        folder_path = filter_str[7:]
+                        # Find matching folder data
+                        for folder_key, folder_data in self.folder_structure.items():
+                            clean_path = self._extract_clean_path(folder_key)
+                            if clean_path == folder_path:
+                                count = folder_data.get("count", 0)
+                                base_name = clean_path.split("/")[-1]  # Get last part of path
+                                has_children = item.childCount() > 0
+                                display_name = base_name
+                                if count > 0:
+                                    display_name += f" ({count})"
+                                if has_children:
+                                    display_name += " [+]"
+                                item.setText(0, display_name)
+                                break
+            
+            # Update children recursively
+            for i in range(item.childCount()):
+                update_item_counts(item.child(i))
+        
+        # Update all top-level items
+        for i in range(self.tree_widget.topLevelItemCount()):
+            update_item_counts(self.tree_widget.topLevelItem(i))
         
     def update_folder_counts(self, folder_stats: Dict[str, Dict[str, int]]):
         """Update folder counts"""
