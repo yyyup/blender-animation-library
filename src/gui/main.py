@@ -8,6 +8,7 @@ import sys
 import logging
 import time
 from pathlib import Path
+from typing import List, Dict, Any
 
 # Add core modules to path
 gui_dir = Path(__file__).parent.parent
@@ -126,7 +127,6 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.blender_connection.animation_extracted.connect(self.on_animation_extracted)
         self.blender_connection.animation_applied.connect(self.on_animation_applied)
         self.blender_connection.error_received.connect(self.on_blender_error)
-        self.blender_connection.thumbnail_updated.connect(self.on_thumbnail_updated)
         
         # UI signals
         toolbar.connect_requested.connect(self.toggle_blender_connection)
@@ -139,6 +139,12 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.animation_moved.connect(self.on_animation_moved)  # NEW: Handle drag & drop
         folder_tree.folder_created.connect(self.on_folder_created)  # NEW: Handle folder creation
         folder_tree.folder_deleted.connect(self.on_folder_deleted)  # NEW: Handle folder deletion
+        
+        # Maya-style enhancement signal connections
+        folder_tree.multi_folder_selected.connect(self.on_multi_folder_selected)
+        folder_tree.folder_auto_expanded.connect(self.on_folder_auto_expanded)
+        folder_tree.batch_move_started.connect(self.on_batch_move_started)
+        folder_tree.folder_organization_changed.connect(self.on_folder_organization_changed)
         animation_grid.animation_selected.connect(self.on_animation_selected)
         
         # Metadata panel signals
@@ -1090,117 +1096,52 @@ class AnimationLibraryMainWindow(QMainWindow):
             import traceback
             traceback.print_exc()
 
-    def setup_connections(self):
-        """Setup signal connections - UPDATED VERSION"""
-        # Get widgets from layout manager
-        toolbar = self.layout_manager.get_widget('toolbar')
-        folder_tree = self.layout_manager.get_widget('folder_tree')
-        animation_grid = self.layout_manager.get_widget('animation_grid')
-        metadata_panel = self.layout_manager.get_widget('metadata_panel')
+    # ==================================================
+    # MAYA-STYLE ENHANCEMENT SIGNAL HANDLERS
+    # ==================================================
+    
+    def on_multi_folder_selected(self, folder_names: List[str]):
+        """Handle multiple folder selection for Maya-style batch operations"""
+        print(f"📁 Multi-folder selection: {len(folder_names)} folders selected")
+        print(f"📁 Selected folders: {', '.join(folder_names)}")
         
-        # Blender connection signals
-        self.blender_connection.connected.connect(self.on_blender_connected)
-        self.blender_connection.disconnected.connect(self.on_blender_disconnected)
-        self.blender_connection.connection_error.connect(self.on_connection_error)
+        # Update status bar with multi-selection info
+        if len(folder_names) > 1:
+            self.status_bar.showMessage(f"Selected {len(folder_names)} folders for batch operations", 3000)
         
-        # Data signals
-        self.blender_connection.scene_info_received.connect(self.on_scene_info_received)
-        self.blender_connection.selection_updated.connect(self.on_selection_updated)
-        self.blender_connection.animation_extracted.connect(self.on_animation_extracted)
-        self.blender_connection.animation_applied.connect(self.on_animation_applied)
-        self.blender_connection.error_received.connect(self.on_blender_error)
+        # Could update UI to show batch operation options
+        # For example, enable batch rename, merge, export options
+    
+    def on_folder_auto_expanded(self, folder_name: str):
+        """Handle auto-expansion of folders during drag operations"""
+        print(f"📁 Auto-expanded folder: {folder_name}")
         
-        # FIXED: Thumbnail update signal connection
-        self.blender_connection.thumbnail_updated.connect(self.on_thumbnail_updated)
+        # Could track auto-expanded folders for cleanup after drag operations
+        # Or provide user feedback about the expansion
+    
+    def on_batch_move_started(self, folder_names: List[str], target_folder: str):
+        """Handle start of batch folder move operations"""
+        print(f"📁 Batch move started: {len(folder_names)} folders")
+        print(f"📁 Source folders: {', '.join(folder_names)}")
+        print(f"📁 Target folder: {target_folder}")
         
-        # UI signals
-        toolbar.connect_requested.connect(self.toggle_blender_connection)
-        toolbar.extract_requested.connect(self.extract_animation)
-        toolbar.search_changed.connect(self.on_search_changed)
-        toolbar.tag_filter_changed.connect(self.on_tag_filter_changed)
-        toolbar.rig_filter_changed.connect(self.on_rig_filter_changed)
+        # Show progress indicator for large batch operations
+        if len(folder_names) > 5:
+            self.status_bar.showMessage(f"Moving {len(folder_names)} folders...", 5000)
         
-        folder_tree.folder_selected.connect(self.on_folder_selected)
-        folder_tree.animation_moved.connect(self.on_animation_moved)
-        folder_tree.folder_created.connect(self.on_folder_created)
-        folder_tree.folder_deleted.connect(self.on_folder_deleted)
-        animation_grid.animation_selected.connect(self.on_animation_selected)
+        # Could implement actual batch move logic here
+        # For now, just provide user feedback
+    
+    def on_folder_organization_changed(self, organization_rules: Dict[str, Any]):
+        """Handle changes to folder organization structure"""
+        print(f"📁 Folder organization changed with rules: {organization_rules}")
         
-        # FIXED: Metadata panel thumbnail update signal
-        metadata_panel.thumbnail_update_requested.connect(self.on_thumbnail_update_requested)
-
-    def refresh_library_display(self):
-        """Refresh the animation library display with proper cleanup and thumbnail connections"""
-        print("🔄 Starting library display refresh...")
-        
-        animations = self.get_filtered_animations()
-        animation_grid = self.layout_manager.get_widget('animation_grid')
-        
-        # Check if we have a large dataset and enable performance mode
-        is_large_dataset = len(animations) > 200
-        if is_large_dataset:
-            print(f"📊 Large dataset detected ({len(animations)} animations) - enabling performance mode")
-            animation_grid.update_grid_performance_mode(large_dataset=True)
-        
-        # Step 1: Clear all existing cards with proper memory cleanup
-        print(f"🧹 Clearing existing cards before adding {len(animations)} new ones")
-        animation_grid.clear_cards()
-        
-        # Step 2: Force Qt to process pending deletions
-        QApplication.processEvents()
-        
-        # Step 3: Create new animation cards (but don't add them one by one)
-        new_cards = []
-        cards_created = 0
-        
-        for animation_data in animations:
-            try:
-                card = AnimationCard(animation_data.to_dict())
-                
-                # Connect signals INCLUDING thumbnail refresh
-                card.apply_requested.connect(self.apply_animation)
-                card.preview_requested.connect(self.preview_animation)
-                card.edit_requested.connect(self.edit_animation)
-                card.delete_requested.connect(self.delete_animation)
-                card.move_to_folder_requested.connect(self.move_animation_to_folder)
-                
-                new_cards.append(card)
-                cards_created += 1
-                
-            except Exception as e:
-                print(f"⚠️ Failed to create card for animation {animation_data.name}: {e}")
-                continue
-        
-        # Step 4: Add all cards at once for better performance
-        if new_cards:
-            if is_large_dataset:
-                # Use bulk add for large datasets
-                animation_grid.bulk_add_cards(new_cards)
-            else:
-                # Use regular add for smaller datasets
-                for card in new_cards:
-                    animation_grid.add_card(card)
-        
-        # Step 5: Re-enable updates if we disabled them
-        if is_large_dataset:
-            animation_grid.update_grid_performance_mode(large_dataset=False)
-        
-        # Step 6: Update other UI components
-        self.update_statistics()
+        # Update folder tree and refresh display
         self.update_folder_tree()
+        self.refresh_library_display()
         
-        print(f"✅ Library display refreshed: {cards_created}/{len(animations)} cards created successfully")
-        
-        # Step 7: Final cleanup and validation
-        if cards_created != len(animations):
-            print(f"⚠️ Warning: Created {cards_created} cards but expected {len(animations)}")
-            
-        # Force cleanup of any orphaned widgets
-        animation_grid.force_layout_cleanup()
-        
-        # Final memory cleanup
-        QApplication.processEvents()
-        print(f"🔄 Refreshed display: {len(animations)} animations shown")
+        # Show success message
+        self.status_bar.showMessage("Folder organization updated", 3000)
 
 def main():
     """Main application entry point"""
