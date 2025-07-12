@@ -255,23 +255,48 @@ class FolderTreeWidget(QWidget):
                 background-color: #2e2e2e !important;
             }
             
-            /* Clean branch styling - no tree lines */
+            /* Maya-style branch styling with proper hierarchy indicators */
             QTreeWidget::branch {
                 background: transparent;
-                width: 16px;
+                width: 20px;
                 border: none;
             }
             
-            QTreeWidget::branch:has-siblings:!adjoins-item,
-            QTreeWidget::branch:has-siblings:adjoins-item,
-            QTreeWidget::branch:!has-children:!has-siblings:adjoins-item,
-            QTreeWidget::branch:closed:has-children:has-siblings,
-            QTreeWidget::branch:open:has-children:has-siblings,
-            QTreeWidget::branch:closed:has-children:!has-siblings,
-            QTreeWidget::branch:open:has-children:!has-siblings {
-                background: transparent;
-                border: none;
+            /* Expansion arrows for folders with children */
+            QTreeWidget::branch:has-children:!has-siblings:closed,
+            QTreeWidget::branch:closed:has-children:has-siblings {
+                border-image: none;
                 image: none;
+                background: transparent;
+            }
+            
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {
+                border-image: none;
+                image: none;
+                background: transparent;
+            }
+            
+            /* Use unicode arrows for expansion/collapse indicators */
+            QTreeWidget::branch:has-children:!has-siblings:closed,
+            QTreeWidget::branch:closed:has-children:has-siblings {
+                background: transparent;
+                margin: 0px;
+                padding: 0px;
+            }
+            
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {
+                background: transparent;
+                margin: 0px;
+                padding: 0px;
+            }
+            
+            /* Indentation for hierarchy levels */
+            QTreeWidget::branch:!has-children:!has-siblings:adjoins-item {
+                border-image: none;
+                background: transparent;
+                width: 20px;
             }
             
             /* Toolbar button styling */
@@ -367,7 +392,7 @@ class FolderTreeWidget(QWidget):
         self.refresh_tree()
     
     def refresh_tree(self):
-        """Refresh the tree widget display with proper folder hierarchy"""
+        """Refresh the tree widget display with proper Maya-style hierarchy"""
         self.tree_widget.clear()
         
         # Always add "All Animations" root first
@@ -376,15 +401,10 @@ class FolderTreeWidget(QWidget):
         root_item.setExpanded(True)
         self.tree_widget.addTopLevelItem(root_item)
         
-        # Add custom folders from folder_structure
+        # Build hierarchical folder structure
         if hasattr(self, 'folder_structure'):
-            for folder_name, folder_data in self.folder_structure.items():
-                if folder_name == "🎬 All Animations":
-                    continue  # Skip root, already added
-                
-                # Create folder item
-                folder_item = self.create_tree_item(folder_name, folder_data)
-                self.tree_widget.addTopLevelItem(folder_item)
+            folder_tree = self._build_folder_hierarchy()
+            self._add_folders_to_tree(folder_tree)
         
         # Select root by default
         if self.tree_widget.topLevelItemCount() > 0:
@@ -392,7 +412,66 @@ class FolderTreeWidget(QWidget):
             first_item.setSelected(True)
             self.current_selection = "all"
         
-        print(f"🔄 TREE: Displayed {self.tree_widget.topLevelItemCount()} items in tree")
+        print(f"🔄 TREE: Displayed {self.tree_widget.topLevelItemCount()} items in tree with hierarchy")
+
+    def _build_folder_hierarchy(self):
+        """Build hierarchical folder structure from flat folder list"""
+        hierarchy = {}
+        
+        for folder_name, folder_data in self.folder_structure.items():
+            if folder_name == "🎬 All Animations":
+                continue
+            
+            # Clean folder name (remove emoji prefixes)
+            clean_name = folder_name.replace("📁 ", "").replace("🧪 ", "")
+            
+            # Split path into parts (e.g., "test/subfolder" -> ["test", "subfolder"])
+            path_parts = clean_name.split("/")
+            
+            # Build nested structure
+            current_level = hierarchy
+            for i, part in enumerate(path_parts):
+                if part not in current_level:
+                    # Create new folder node
+                    current_level[part] = {
+                        "data": folder_data.copy() if i == len(path_parts) - 1 else {"type": "folder", "count": 0},
+                        "children": {},
+                        "full_path": "/".join(path_parts[:i+1])
+                    }
+                current_level = current_level[part]["children"]
+        
+        return hierarchy
+
+    def _add_folders_to_tree(self, folder_hierarchy, parent_item=None):
+        """Recursively add folders to tree with proper Maya-style nesting"""
+        for folder_name, folder_info in folder_hierarchy.items():
+            folder_data = folder_info["data"].copy()
+            folder_data["type"] = "folder"
+            
+            # Create folder item with proper display name and emoji
+            display_name = f"📁 {folder_name}"
+            
+            # Add count if available
+            if folder_data.get("count", 0) > 0:
+                display_name += f" ({folder_data['count']})"
+            
+            # Set proper filter for navigation
+            folder_data["filter"] = f"folder:{folder_info['full_path']}"
+            
+            folder_item = self.create_tree_item(display_name, folder_data)
+            
+            # Add to parent or root level
+            if parent_item:
+                parent_item.addChild(folder_item)
+            else:
+                self.tree_widget.addTopLevelItem(folder_item)
+            
+            # Recursively add children (subfolders)
+            if folder_info["children"]:
+                folder_item.setExpanded(True)  # Auto-expand folders with children
+                self._add_folders_to_tree(folder_info["children"], folder_item)
+        
+        print(f"🌳 TREE: Added {len(folder_hierarchy)} folders to hierarchy level")
 
     def update_folder_counts(self, folder_stats: Dict[str, Dict[str, int]]):
         """Update folder counts from library statistics"""
