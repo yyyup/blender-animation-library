@@ -1080,7 +1080,7 @@ class AnimationLibraryMainWindow(QMainWindow):
                 print(f"🔍 FILTERING: Applying folder filter for: '{folder_name}'")
                 print(f"🔍 FILTERING: Total animations before filter: {len(all_animations)}")
                 
-                # Filter animations by exact folder path match
+                # Filter animations by exact folder path match (flat folders only)
                 filtered_animations = []
                 for anim in all_animations:
                     anim_folder = getattr(anim, 'folder_path', 'Root')
@@ -1093,7 +1093,7 @@ class AnimationLibraryMainWindow(QMainWindow):
                         print(f"     ❌ EXCLUDED: {anim.name}")
                 
                 all_animations = filtered_animations
-                print(f"🔍 FILTERING: Found {len(all_animations)} animations in folder '{folder_name}'")
+                print(f"🔍 FILTERING: Found {len(all_animations)} animations in flat folder '{folder_name}'")
         
         # Apply search filter
         search_text = toolbar.search_box.text().lower()

@@ -172,15 +172,15 @@ class FolderTreeWidget(QWidget):
         root_item.setExpanded(True)
         self.tree_widget.addTopLevelItem(root_item)
         
-        # Build and add folder hierarchy
+        # Build and add flat folder list
         if hasattr(self, 'folder_structure'):
-            print(f"🌳 TREE: Building hierarchy from {len(self.folder_structure)} folders")
-            hierarchy = self._build_folder_hierarchy()
-            print(f"🌳 TREE: Built hierarchy with {len(hierarchy)} top-level items")
-            if hierarchy:
-                self._add_folders_to_tree(hierarchy)
+            print(f"🌳 TREE: Building flat folders from {len(self.folder_structure)} folders")
+            folders = self._build_flat_folder_list()
+            print(f"🌳 TREE: Built {len(folders)} flat folders")
+            if folders:
+                self._add_flat_folders_to_tree(folders)
             else:
-                print("⚠️ TREE: No hierarchy built - check folder structure")
+                print("⚠️ TREE: No flat folders found")
         
         # Restore expansion state
         self._restore_expanded_items(expanded_items)
@@ -196,64 +196,23 @@ class FolderTreeWidget(QWidget):
                 first_item.setSelected(True)
                 self.current_selection = "all"
             
-    def _build_folder_hierarchy(self) -> Dict[str, Any]:
-        """Build hierarchical folder structure from flat folder list"""
-        hierarchy = {}
+    def _build_flat_folder_list(self) -> List[tuple]:
+        """Build simple flat folder list (no hierarchy)"""
+        folders = []
         
-        # First, get all the clean folder paths
-        folder_paths = []
+        # Get all clean folder paths as flat list
         for folder_key, folder_data in self.folder_structure.items():
             if folder_key == "🎬 All Animations":
                 continue
                 
             clean_path = self._extract_clean_path(folder_key)
-            if clean_path:
-                folder_paths.append((clean_path, folder_data))
-                print(f"🔍 HIERARCHY: Processing folder: '{clean_path}'")
+            # Only include single-level folders (no "/" in path)
+            if clean_path and "/" not in clean_path:
+                folders.append((clean_path, folder_data))
+                print(f"� FLAT: Processing folder: '{clean_path}'")
         
-        print(f"🔍 HIERARCHY: Total paths to process: {len(folder_paths)}")
-        
-        # Sort by path depth (parents before children)
-        folder_paths.sort(key=lambda x: x[0].count("/"))
-        print(f"🔍 HIERARCHY: Sorted paths: {[path for path, _ in folder_paths]}")
-        
-        # Build hierarchy
-        for clean_path, folder_data in folder_paths:
-            print(f"🔨 HIERARCHY: Building path: '{clean_path}'")
-            
-            # Split path into parts
-            path_parts = clean_path.split("/")
-            print(f"🔨 HIERARCHY: Path parts: {path_parts}")
-            
-            # Navigate to the correct position in hierarchy
-            current_level = hierarchy
-            for i, part in enumerate(path_parts[:-1]):  # All except last part
-                print(f"  🔨 Creating/finding parent: '{part}'")
-                if part not in current_level:
-                    # Create intermediate folder node
-                    current_level[part] = {
-                        "data": {"type": "folder", "count": 0, "filter": f"folder:{'/'.join(path_parts[:i+1])}"},
-                        "children": {},
-                        "full_path": "/".join(path_parts[:i+1])
-                    }
-                    print(f"  ✅ Created parent folder: '{part}'")
-                current_level = current_level[part]["children"]
-            
-            # Add the final folder
-            final_part = path_parts[-1]
-            print(f"  🔨 Adding final part: '{final_part}'")
-            current_level[final_part] = {
-                "data": folder_data.copy(),
-                "children": {},
-                "full_path": clean_path
-            }
-            print(f"  ✅ Added final folder: '{final_part}'")
-        
-        print(f"🏗️ HIERARCHY: Final hierarchy: {list(hierarchy.keys())}")
-        for key, value in hierarchy.items():
-            print(f"  📁 {key} has {len(value['children'])} children: {list(value['children'].keys())}")
-                
-        return hierarchy
+        print(f"🔍 FLAT: Found {len(folders)} flat folders")
+        return folders
         
     def _extract_clean_path(self, folder_key: str) -> str:
         """Extract clean folder path from stored key"""
@@ -270,44 +229,29 @@ class FolderTreeWidget(QWidget):
         
         return clean.strip()
         
-    def _add_folders_to_tree(self, folder_hierarchy: Dict[str, Any], parent_item: Optional[QTreeWidgetItem] = None):
-        """Add folders to tree with proper nesting"""
-        print(f"🌲 ADD_TO_TREE: Adding {len(folder_hierarchy)} folders to tree")
+    def _add_flat_folders_to_tree(self, folders: List[tuple]):
+        """Add flat folders to tree (no nesting)"""
+        print(f"🌲 FLAT: Adding {len(folders)} flat folders to tree")
         
-        for folder_name, folder_info in folder_hierarchy.items():
-            print(f"🌲 ADD_TO_TREE: Processing folder '{folder_name}' with {len(folder_info['children'])} children")
-            
-            folder_data = folder_info["data"].copy()
-            folder_data["type"] = "folder"
+        for folder_name, folder_data in folders:
+            print(f"🌲 FLAT: Processing folder '{folder_name}'")
             
             # Create display name with count
             display_name = folder_name
             if folder_data.get("count", 0) > 0:
                 display_name += f" ({folder_data['count']})"
                 
-            # Set filter for navigation
-            folder_data["filter"] = f"folder:{folder_info['full_path']}"
+            # Set filter for navigation (simple folder name)
+            folder_data["filter"] = f"folder:{folder_name}"
+            folder_data["type"] = "folder"
             
             # Create tree item
             folder_item = self.create_tree_item(display_name, folder_data)
-            print(f"🌲 ADD_TO_TREE: Created tree item for '{display_name}'")
+            print(f"🌲 FLAT: Created tree item for '{display_name}'")
             
-            # Add to parent or root level
-            if parent_item:
-                parent_item.addChild(folder_item)
-                print(f"🌲 ADD_TO_TREE: Added '{display_name}' as child of parent")
-            else:
-                self.tree_widget.addTopLevelItem(folder_item)
-                print(f"🌲 ADD_TO_TREE: Added '{display_name}' as top-level item")
-                
-            # Recursively add children
-            if folder_info["children"]:
-                print(f"🌲 ADD_TO_TREE: '{folder_name}' has children, recursing...")
-                self._add_folders_to_tree(folder_info["children"], folder_item)
-                folder_item.setExpanded(False)  # Start collapsed
-                print(f"🌲 ADD_TO_TREE: Set '{folder_name}' as expandable")
-            else:
-                print(f"🌲 ADD_TO_TREE: '{folder_name}' has no children")
+            # Add as top-level item (no hierarchy)
+            self.tree_widget.addTopLevelItem(folder_item)
+            print(f"🌲 FLAT: Added '{display_name}' as top-level item")
                 
     def on_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle item click with improved selection persistence"""
@@ -340,17 +284,14 @@ class FolderTreeWidget(QWidget):
             self._clear_other_selections(tree_item.child(i), selected_item)
             
     def show_context_menu(self, position: QPoint):
-        """Show context menu for folder operations"""
+        """Show context menu for folder operations (flat folders only)"""
         item = self.tree_widget.itemAt(position)
         menu = QMenu(self)
         
         if item:
             item_data = item.data(0, Qt.UserRole)
             if item_data and item_data.get("type") == "folder":
-                # Folder context menu
-                create_sub = menu.addAction("Create Subfolder")
-                create_sub.triggered.connect(lambda: self.create_subfolder(item))
-                menu.addSeparator()
+                # Simple folder context menu (no subfolders)
                 delete = menu.addAction("Delete Folder")
                 delete.triggered.connect(lambda: self.delete_folder(item))
         else:
@@ -361,42 +302,24 @@ class FolderTreeWidget(QWidget):
         menu.exec(self.tree_widget.mapToGlobal(position))
         
     def create_new_folder(self):
-        """Create a new folder at root level"""
+        """Create a new flat folder"""
         folder_name, ok = QInputDialog.getText(
             self, "Create Folder", "Enter folder name:", text="New Folder"
         )
         if ok and folder_name.strip():
             clean_name = folder_name.strip()
-            print(f"📁 Creating folder: {clean_name}")
+            # Prevent nested folder names
+            if "/" in clean_name:
+                QMessageBox.warning(
+                    self, "Invalid Folder Name", 
+                    "Folder names cannot contain '/' characters.\nOnly flat folders are supported."
+                )
+                return
+            print(f"📁 Creating flat folder: {clean_name}")
             self.folder_created.emit(clean_name)
             
-    def create_subfolder(self, parent_item: QTreeWidgetItem):
-        """Create a subfolder under the given parent"""
-        if not parent_item:
-            return
-            
-        parent_data = parent_item.data(0, Qt.UserRole)
-        if not parent_data:
-            return
-            
-        # Extract parent folder path
-        parent_filter = parent_data.get("filter", "")
-        if parent_filter.startswith("folder:"):
-            parent_path = parent_filter[7:]  # Remove "folder:" prefix
-        else:
-            return
-            
-        subfolder_name, ok = QInputDialog.getText(
-            self, "Create Subfolder", f"Enter subfolder name:", text="New Subfolder"
-        )
-        if ok and subfolder_name.strip():
-            clean_name = subfolder_name.strip()
-            full_path = f"{parent_path}/{clean_name}"
-            print(f"📁 Creating subfolder: {full_path}")
-            self.folder_created.emit(full_path)
-            
     def delete_folder(self, item: QTreeWidgetItem):
-        """Delete the selected folder"""
+        """Delete the selected flat folder"""
         if not item:
             return
             
@@ -404,24 +327,24 @@ class FolderTreeWidget(QWidget):
         if not item_data or item_data.get("type") != "folder":
             return
             
-        # Extract folder path
+        # Extract simple folder name
         filter_str = item_data.get("filter", "")
         if filter_str.startswith("folder:"):
-            folder_path = filter_str[7:]  # Remove "folder:" prefix
+            folder_name = filter_str[7:]  # Remove "folder:" prefix
         else:
             return
             
         reply = QMessageBox.question(
             self, "Delete Folder",
-            f"Are you sure you want to delete the folder '{folder_path}'?\n\n"
+            f"Are you sure you want to delete the folder '{folder_name}'?\n\n"
             "All animations in this folder will be moved to the Root folder.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         
         if reply == QMessageBox.Yes:
-            print(f"🗑️ Deleting folder: {folder_path}")
-            self.folder_deleted.emit(folder_path)
+            print(f"🗑️ Deleting flat folder: {folder_name}")
+            self.folder_deleted.emit(folder_name)
             
     def update_folder_structure(self, folder_structure: Dict[str, Any]):
         """Update folder structure from library manager"""
@@ -485,7 +408,7 @@ class FolderTreeWidget(QWidget):
         self._update_display_counts_only()
         
     def _update_display_counts_only(self):
-        """Update display text of existing items without rebuilding"""
+        """Update display text of existing items without rebuilding (flat folders)"""
         def update_item_counts(item):
             item_data = item.data(0, Qt.UserRole)
             if item_data:
@@ -495,23 +418,19 @@ class FolderTreeWidget(QWidget):
                 elif item_data.get("type") == "folder":
                     filter_str = item_data.get("filter", "")
                     if filter_str.startswith("folder:"):
-                        folder_path = filter_str[7:]
+                        folder_name = filter_str[7:]  # Simple folder name
                         # Find matching folder data
                         for folder_key, folder_data in self.folder_structure.items():
                             clean_path = self._extract_clean_path(folder_key)
-                            if clean_path == folder_path:
+                            if clean_path == folder_name:
                                 count = folder_data.get("count", 0)
-                                base_name = clean_path.split("/")[-1]  # Get last part of path
-                                has_children = item.childCount() > 0
-                                display_name = base_name
+                                display_name = folder_name
                                 if count > 0:
                                     display_name += f" ({count})"
-                                if has_children:
-                                    display_name += " [+]"
                                 item.setText(0, display_name)
                                 break
             
-            # Update children recursively
+            # Update children recursively (should be none for flat folders)
             for i in range(item.childCount()):
                 update_item_counts(item.child(i))
         
@@ -705,7 +624,7 @@ class FolderTreeWidget(QWidget):
             event.ignore()
     
     def _get_folder_path_from_item(self, item) -> Optional[str]:
-        """Get folder path from tree item"""
+        """Get simple folder name from tree item (flat folders only)"""
         item_data = item.data(0, Qt.UserRole)
         if not item_data:
             return None
@@ -713,10 +632,10 @@ class FolderTreeWidget(QWidget):
         item_type = item_data.get("type", "")
         
         if item_type == "folder":
-            # This is a custom folder - extract the clean folder name
+            # Extract simple folder name (no hierarchy)
             folder_display_name = item.text(0).split(" (")[0]  # Remove count
             folder_name = folder_display_name.replace("📁 ", "")  # Remove emoji
-            print(f"🔍 Extracted folder name: '{folder_name}' from display: '{folder_display_name}'")
+            print(f"🔍 Extracted flat folder name: '{folder_name}' from display: '{folder_display_name}'")
             return folder_name
         elif item_type == "root":
             # Dropped on root - use "Root" as default folder
