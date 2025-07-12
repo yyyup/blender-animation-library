@@ -19,6 +19,7 @@ from PySide6.QtCore import Qt, Signal, QUrl, QTimer
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QBrush
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
+from typing import Optional
 
 from core.animation_data import AnimationMetadata
 
@@ -26,8 +27,8 @@ from core.animation_data import AnimationMetadata
 class MetadataPanel(QWidget):
     """Professional metadata panel matching Studio Library style with video preview support"""
     
-    # Signals for requesting thumbnail updates
-    thumbnail_update_requested = Signal(str, str)  # animation_id, folder_path
+    # Signals for requesting preview updates
+    preview_update_requested = Signal(str, str)  # animation_id, folder_path
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,17 +128,17 @@ class MetadataPanel(QWidget):
             # Create video player
             self.create_video_player(preview_layout, animation)
         else:
-            # Create static image preview
-            self.create_image_preview(preview_layout, animation)
+            # Create video preview
+            self.setup_video_preview(preview_layout, animation)
         
         # Buttons section
         buttons_layout = QHBoxLayout()
         
-        # Update thumbnail button
-        update_thumbnail_btn = QPushButton("Update Thumbnail")
-        update_thumbnail_btn.setObjectName("updateThumbnailButton")
-        update_thumbnail_btn.setFixedHeight(28)
-        update_thumbnail_btn.clicked.connect(self.on_update_thumbnail_clicked)
+        # Update preview button
+        update_preview_btn = QPushButton("🎬 Update Preview")
+        update_preview_btn.setObjectName("updatePreviewButton")
+        update_preview_btn.setFixedHeight(28)
+        update_preview_btn.clicked.connect(self.on_update_preview_clicked)
         
         # Style button
         button_style = """
@@ -161,9 +162,9 @@ class MetadataPanel(QWidget):
             }
         """
         
-        update_thumbnail_btn.setStyleSheet(button_style)
+        update_preview_btn.setStyleSheet(button_style)
         
-        buttons_layout.addWidget(update_thumbnail_btn)
+        buttons_layout.addWidget(update_preview_btn)
         preview_layout.addLayout(buttons_layout)
         
         self.content_layout.addWidget(preview_group)
@@ -425,49 +426,43 @@ class MetadataPanel(QWidget):
         painter.end()
         preview_label.setPixmap(pixmap)
     
-    def on_update_thumbnail_clicked(self):
-        
-        """Handle update thumbnail button click"""
+    def on_update_preview_clicked(self):
+        """Handle update preview button click"""
         if self.current_animation:
-            self.request_thumbnail_update(self.current_animation)
-            print(f"🖱️ DEBUG: Update thumbnail button clicked")
+            self.request_preview_update(self.current_animation)
+            print("🖱️ DEBUG: Update preview button clicked")
             if self.current_animation:
                 print(f"🎬 DEBUG: Current animation: {self.current_animation.name}")
                 print(f"🎬 DEBUG: Animation ID: {getattr(self.current_animation, 'id', 'NO_ID')}")
-                self.request_thumbnail_update(self.current_animation)
+                self.request_preview_update(self.current_animation)
             else:
                 print("❌ DEBUG: No current animation selected")
     
-    def request_thumbnail_update(self, animation: AnimationMetadata):
-        """Request thumbnail update for the current animation"""
+    def request_preview_update(self, animation: AnimationMetadata):
+        """Request preview update for the current animation"""
         # Send both animation ID and folder path for precise location
         animation_id = getattr(animation, 'id', animation.name)
         folder_path = getattr(animation, 'folder_path', 'Root')
         
-        print(f"📤 DEBUG: Requesting thumbnail update for: {animation_id} in folder: {folder_path}")
+        print(f"📤 DEBUG: Requesting preview update for: {animation_id} in folder: {folder_path}")
         
         # Emit both animation_id and folder_path
-        self.thumbnail_update_requested.emit(animation_id, folder_path)
+        self.preview_update_requested.emit(animation_id, folder_path)
     
-    def refresh_thumbnail(self, animation_identifier: str):
-        """Refresh the large preview image for the specified animation with cache clearing"""
+    def refresh_preview(self, animation_identifier: str):
+        """Refresh the video preview for the specified animation"""
         if self.current_animation:
             # Check if this matches by ID or name
             animation_id = getattr(self.current_animation, 'id', self.current_animation.name)
             if animation_identifier == animation_id or animation_identifier == self.current_animation.name:
                 
-                print(f"🔄 METADATA: Refreshing large preview for ID: {animation_identifier}")
+                print(f"🔄 METADATA: Refreshing video preview for ID: {animation_identifier}")
                 
-                # Clear Qt's pixmap cache
-                from PySide6.QtGui import QPixmapCache
-                QPixmapCache.clear()                # Find the preview label in the current layout
-                preview_label = self.findChild(QLabel, "large_preview")
-                if preview_label:
-                    # Force reload the large preview image
-                    self.load_large_preview_force_refresh(preview_label, self.current_animation)
-                    print(f"🖼️ METADATA: Refreshed large preview for ID: {animation_identifier}")
-                else:
-                    print(f"⚠️ METADATA: Preview label not found for ID: {animation_identifier}")
+                # Reload the video preview
+                self.load_video_preview(self.current_animation)
+                print(f"🖼️ METADATA: Refreshed preview for ID: {animation_identifier}")
+
+    # Legacy thumbnail methods removed - using video preview system only
 
     def load_large_preview_force_refresh(self, preview_label: QLabel, animation: AnimationMetadata):
         """Load large preview image with forced refresh (no cache)"""
@@ -742,3 +737,133 @@ class MetadataPanel(QWidget):
             }
         """)
         return group
+
+    def setup_video_preview(self, layout, animation):
+        """Setup video preview with 512x512 video player and controls"""
+        # Initialize media player if not already done
+        if not self.media_player:
+            self.media_player = QMediaPlayer()
+            self.audio_output = QAudioOutput()
+            self.audio_output.setVolume(0.5)  # 50% volume for preview
+            self.media_player.setAudioOutput(self.audio_output)
+        
+        # Video widget
+        if not self.video_widget:
+            self.video_widget = QVideoWidget()
+            self.video_widget.setFixedSize(512, 512)
+            self.media_player.setVideoOutput(self.video_widget)
+        
+        layout.addWidget(self.video_widget)
+        
+        # Load video preview
+        self.load_video_preview(animation)
+        
+        # Controls
+        controls_layout = QHBoxLayout()
+        
+        # Play/Pause button
+        self.play_button = QPushButton("▶ Play")
+        self.play_button.setFixedHeight(28)
+        self.play_button.clicked.connect(self.toggle_play_pause)
+        
+        # Position label
+        self.position_label = QLabel("00:00 / 00:00")
+        
+        controls_layout.addWidget(self.play_button)
+        controls_layout.addWidget(self.position_label)
+        controls_layout.addStretch()
+        
+        layout.addLayout(controls_layout)
+        
+        # Connect media player signals
+        self.media_player.playbackStateChanged.connect(self.on_playback_state_changed)
+        self.media_player.positionChanged.connect(self.on_position_changed)
+        self.media_player.durationChanged.connect(self.on_duration_changed)
+    
+    def load_video_preview(self, animation):
+        """Load video preview from animation metadata"""
+        preview_loaded = False
+        
+        # Check if animation has preview path in metadata
+        if hasattr(animation, 'preview') and animation.preview:
+            preview_path = Path("animation_library") / animation.preview
+            if preview_path.exists():
+                self.media_player.setSource(QUrl.fromLocalFile(str(preview_path.absolute())))
+                preview_loaded = True
+                print(f"🎬 Loaded preview from metadata: {preview_path}")
+        
+        # Fallback to animation ID-based preview path using folder structure  
+        if not preview_loaded:
+            animation_id = getattr(animation, 'id', animation.name)
+            folder_path = getattr(animation, 'folder_path', 'Root')
+            preview_filename = f"{animation_id}.mp4"
+            preview_path = Path("animation_library") / "previews" / folder_path / preview_filename
+            
+            if preview_path.exists():
+                self.media_player.setSource(QUrl.fromLocalFile(str(preview_path.absolute())))
+                preview_loaded = True
+                print(f"🎬 Loaded preview from ID: {preview_path}")
+        
+        # Search for any preview file containing the animation name
+        if not preview_loaded:
+            preview_path = self._find_preview_by_name(animation)
+            if preview_path:
+                self.media_player.setSource(QUrl.fromLocalFile(str(preview_path.absolute())))
+                preview_loaded = True
+                print(f"🎬 Found preview by name search: {preview_path}")
+        
+        if not preview_loaded:
+            print(f"⚠️ No preview found for animation: {animation.name}")
+            # Could show a placeholder or hide video widget
+    
+    def _find_preview_by_name(self, animation) -> Optional[Path]:
+        """Find preview file by searching for files containing the animation name"""
+        try:
+            animation_name = animation.name.replace(" ", "_")
+            folder_path = getattr(animation, 'folder_path', 'Root')
+            previews_dir = Path("animation_library") / "previews" / folder_path
+            
+            if previews_dir.exists():
+                # Search for MP4 files containing the animation name
+                for preview_file in previews_dir.glob("*.mp4"):
+                    if animation_name in preview_file.name:
+                        return preview_file
+            return None
+        except Exception as e:
+            print(f"⚠️ Error searching for preview: {e}")
+            return None
+    
+    def toggle_play_pause(self):
+        """Toggle play/pause state"""
+        if self.media_player.playbackState() == QMediaPlayer.PlayingState:
+            self.media_player.pause()
+        else:
+            self.media_player.play()
+    
+    def on_playback_state_changed(self, state):
+        """Update play button text based on playback state"""
+        if state == QMediaPlayer.PlayingState:
+            self.play_button.setText("⏸ Pause")
+        else:
+            self.play_button.setText("▶ Play")
+    
+    def on_position_changed(self, position):
+        """Update position label"""
+        if hasattr(self, 'position_label'):
+            current = self.format_time(position)
+            duration = self.format_time(self.media_player.duration())
+            self.position_label.setText(f"{current} / {duration}")
+    
+    def on_duration_changed(self, duration):
+        """Update duration display"""
+        if hasattr(self, 'position_label'):
+            current = self.format_time(self.media_player.position())
+            duration_str = self.format_time(duration)
+            self.position_label.setText(f"{current} / {duration_str}")
+    
+    def format_time(self, ms):
+        """Format time in milliseconds to MM:SS"""
+        seconds = ms // 1000
+        minutes = seconds // 60
+        seconds = seconds % 60
+        return f"{minutes:02d}:{seconds:02d}"

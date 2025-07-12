@@ -26,7 +26,7 @@ class AnimationLibraryManager:
         self.clips_folder = self.library_path / 'clips'  # Legacy JSON clips
         self.actions_folder = self.library_path / 'actions'  # Legacy .blend files (migration support)
         self.animations_folder = self.library_path / 'animations'  # NEW: File system-based folders
-        self.thumbnails_folder = self.library_path / 'thumbnails'
+        self.previews_folder = self.library_path / 'previews'  # Updated from thumbnails_folder
         
         # Remove JSON-based folder structure - now using file system
         # self.folders_file = self.library_path / 'folders.json'  # REMOVED: No longer needed
@@ -59,15 +59,15 @@ class AnimationLibraryManager:
         
         # Create animations/ as the main folder container
         self.animations_folder.mkdir(exist_ok=True)
-        self.thumbnails_folder.mkdir(exist_ok=True)
+        self.previews_folder.mkdir(exist_ok=True)  # Updated from thumbnails_folder
         
         # Create animations/Root/ as the default location for new animations
         root_animations_folder = self.animations_folder / "Root"
         root_animations_folder.mkdir(exist_ok=True)
         
-        # Create thumbnails/Root/ to mirror the structure
-        root_thumbnails_folder = self.thumbnails_folder / "Root"
-        root_thumbnails_folder.mkdir(exist_ok=True)
+        # Create previews/Root/ to mirror the structure (updated from thumbnails)
+        root_previews_folder = self.previews_folder / "Root"
+        root_previews_folder.mkdir(exist_ok=True)
         
         # Legacy support: Keep actions/ for migration
         self.actions_folder.mkdir(exist_ok=True)
@@ -141,9 +141,9 @@ class AnimationLibraryManager:
                 
             new_folder.mkdir(parents=True, exist_ok=False)
             
-            # Create corresponding thumbnails folder
-            thumbnails_folder = self.thumbnails_folder / folder_name.strip()
-            thumbnails_folder.mkdir(parents=True, exist_ok=True)
+            # Create corresponding previews folder (updated from thumbnails)
+            previews_folder = self.previews_folder / folder_name.strip()
+            previews_folder.mkdir(parents=True, exist_ok=True)
             
             logger.info("📁 Created folder: %s", folder_name)
             return True
@@ -211,14 +211,14 @@ class AnimationLibraryManager:
                     # Remove the empty folder
                     folder_to_delete.rmdir()
                     
-                # Also remove thumbnails folder if it exists
-                thumbnails_folder = self.thumbnails_folder / folder_path
-                if thumbnails_folder.exists():
-                    thumbnails_root = self.thumbnails_folder / "Root"
-                    for item in thumbnails_folder.iterdir():
+                # Also remove previews folder if it exists (updated from thumbnails)
+                previews_folder = self.previews_folder / folder_path
+                if previews_folder.exists():
+                    previews_root = self.previews_folder / "Root"
+                    for item in previews_folder.iterdir():
                         if item.is_file():
-                            shutil.move(str(item), str(thumbnails_root / item.name))
-                    thumbnails_folder.rmdir()
+                            shutil.move(str(item), str(previews_root / item.name))
+                    previews_folder.rmdir()
                     
             except Exception as e:
                 logger.error("Failed to remove folder from filesystem: %s", e)
@@ -277,9 +277,9 @@ class AnimationLibraryManager:
             target_folder = self.animations_folder / folder_path
             target_folder.mkdir(parents=True, exist_ok=True)
             
-            # Also ensure thumbnails folder exists
-            target_thumbnails = self.thumbnails_folder / folder_path
-            target_thumbnails.mkdir(parents=True, exist_ok=True)
+            # Also ensure previews folder exists (updated from thumbnails)
+            target_previews = self.previews_folder / folder_path
+            target_previews.mkdir(parents=True, exist_ok=True)
             
             # Update .blend file path if using blend storage
             if animation.is_blend_file_storage():
@@ -408,9 +408,9 @@ class AnimationLibraryManager:
                 target_folder = self.animations_folder / new_folder_path
                 target_folder.mkdir(parents=True, exist_ok=True)
                 
-                # Also ensure thumbnails folder exists
-                target_thumbnails = self.thumbnails_folder / new_folder_path  
-                target_thumbnails.mkdir(parents=True, exist_ok=True)
+                # Also ensure previews folder exists (updated from thumbnails)
+                target_previews = self.previews_folder / new_folder_path  
+                target_previews.mkdir(parents=True, exist_ok=True)
                 
                 # Move .blend file if it exists
                 if animation.is_blend_file_storage() and animation.blend_reference.exists():
@@ -426,17 +426,17 @@ class AnimationLibraryManager:
                         logger.error("Failed to move .blend file %s: %s", old_path, e)
                         return False
                 
-                # Move thumbnail if it exists
-                thumbnail_name = f"{animation_id}.png"
-                old_thumbnail = self.thumbnails_folder / old_folder / thumbnail_name
-                new_thumbnail = target_thumbnails / thumbnail_name
+                # Move preview if it exists (updated from thumbnail)
+                preview_name = f"{animation_id}.mp4"  # Updated from .png to .mp4
+                old_preview = self.previews_folder / old_folder / preview_name
+                new_preview = target_previews / preview_name
                 
-                if old_thumbnail.exists():
+                if old_preview.exists():
                     try:
-                        shutil.move(str(old_thumbnail), str(new_thumbnail))
-                        print(f"📁 LIBRARY: Moved thumbnail: {old_thumbnail} → {new_thumbnail}")
+                        shutil.move(str(old_preview), str(new_preview))
+                        print(f"📁 LIBRARY: Moved preview: {old_preview} → {new_preview}")
                     except Exception as e:
-                        logger.warning("Failed to move thumbnail %s: %s", old_thumbnail, e)
+                        logger.warning("Failed to move preview %s: %s", old_preview, e)
                 
                 # Update the folder path in metadata
                 animation.folder_path = new_folder_path
@@ -820,23 +820,74 @@ class AnimationLibraryManager:
         self.library_metadata["folder_structure"] = self.get_folder_statistics()
     
     def _remove_animation_files(self, animation: AnimationMetadata):
-        """Remove files associated with an animation"""
+        """Remove files associated with an animation - UPDATED FOR NEW FOLDER STRUCTURE"""
+        print(f"🔍 DEBUG: Removing files for animation: {animation.id}")
+        print(f"🔍 DEBUG: Animation folder_path: {animation.folder_path}")
+        
         if animation.is_blend_file_storage() and animation.blend_reference:
-            # Remove .blend file
-            blend_path = self.actions_folder / animation.blend_reference.blend_file
+            # NEW: Remove .blend file from animations/folder_path/ structure
+            folder_path = animation.folder_path or "Root"
+            blend_path = self.animations_folder / folder_path / animation.blend_reference.blend_file
+            print(f"🔍 DEBUG: Attempting to remove .blend file: {blend_path}")
+            print(f"🔍 DEBUG: .blend file exists: {blend_path.exists()}")
+            
             if blend_path.exists():
-                blend_path.unlink()
-                logger.info(f"🗑️ Removed .blend file: {blend_path.name}")
+                try:
+                    blend_path.unlink()
+                    print(f"✅ DEBUG: Removed .blend file: {blend_path.name}")
+                    logger.info(f"🗑️ Removed .blend file: {blend_path.name}")
+                except Exception as e:
+                    print(f"❌ DEBUG: Failed to remove .blend file: {e}")
+                    logger.error(f"Failed to remove .blend file {blend_path}: {e}")
+            else:
+                # Fallback: Try legacy actions folder for migration support
+                legacy_blend_path = self.actions_folder / animation.blend_reference.blend_file
+                print(f"🔍 DEBUG: Fallback - trying legacy path: {legacy_blend_path}")
+                if legacy_blend_path.exists():
+                    try:
+                        legacy_blend_path.unlink()
+                        print(f"✅ DEBUG: Removed legacy .blend file: {legacy_blend_path.name}")
+                        logger.info(f"🗑️ Removed legacy .blend file: {legacy_blend_path.name}")
+                    except Exception as e:
+                        print(f"❌ DEBUG: Failed to remove legacy .blend file: {e}")
         
         # Remove legacy clip file if it exists
         clip_file = self.clips_folder / f"{animation.id}.blend"
+        print(f"🔍 DEBUG: Checking legacy clip file: {clip_file}")
         if clip_file.exists():
-            clip_file.unlink()
+            try:
+                clip_file.unlink()
+                print(f"✅ DEBUG: Removed legacy clip file: {clip_file.name}")
+            except Exception as e:
+                print(f"❌ DEBUG: Failed to remove legacy clip file: {e}")
         
-        # Remove thumbnail file
-        thumbnail_file = self.thumbnails_folder / f"{animation.id}.png"
-        if thumbnail_file.exists():
-            thumbnail_file.unlink()
+        # NEW: Remove preview file from previews/folder_path/ structure (updated from thumbnails)
+        folder_path = animation.folder_path or "Root"
+        preview_file = self.previews_folder / folder_path / f"{animation.id}.mp4"
+        print(f"🔍 DEBUG: Attempting to remove preview file: {preview_file}")
+        print(f"🔍 DEBUG: Preview file exists: {preview_file.exists()}")
+        
+        if preview_file.exists():
+            try:
+                preview_file.unlink()
+                print(f"✅ DEBUG: Removed preview file: {preview_file.name}")
+                logger.info(f"🗑️ Removed preview file: {preview_file.name}")
+            except Exception as e:
+                print(f"❌ DEBUG: Failed to remove preview file: {e}")
+                logger.error(f"Failed to remove preview file {preview_file}: {e}")
+        else:
+            # Fallback: Try legacy thumbnail file for migration support
+            legacy_thumbnail_file = self.previews_folder / f"{animation.id}.png"
+            print(f"🔍 DEBUG: Fallback - trying legacy thumbnail: {legacy_thumbnail_file}")
+            if legacy_thumbnail_file.exists():
+                try:
+                    legacy_thumbnail_file.unlink()
+                    print(f"✅ DEBUG: Removed legacy thumbnail file: {legacy_thumbnail_file.name}")
+                    logger.info(f"🗑️ Removed legacy thumbnail file: {legacy_thumbnail_file.name}")
+                except Exception as e:
+                    print(f"❌ DEBUG: Failed to remove legacy thumbnail file: {e}")
+        
+        print(f"🔍 DEBUG: File removal complete for animation: {animation.id}")
     
     def detect_and_import_existing_blend_files(self) -> int:
         """Detect existing .blend files in animations folder and add them to library"""

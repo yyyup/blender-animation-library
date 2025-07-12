@@ -152,8 +152,8 @@ class AnimationMetadata:
     # Folder organization
     folder_path: str = "Root"  # Folder path in library structure
     
-    # Thumbnail support
-    thumbnail: str = ""  # Relative path to thumbnail image
+    # Video preview support  
+    preview: str = ""  # Relative path to preview video (MP4)
     
     # Storage method and .blend file support
     storage_method: str = "blend_file"  # "blend_file" or "json_keyframes"
@@ -219,7 +219,7 @@ class AnimationMetadata:
             "quality_rating": self.quality_rating,
             "usage_count": self.usage_count,
             "folder_path": self.folder_path,
-            "thumbnail": self.thumbnail,
+            "preview": self.preview,
             "storage_method": self.storage_method,
             "extraction_time_seconds": self.extraction_time_seconds,
             "application_time_seconds": self.application_time_seconds
@@ -331,7 +331,7 @@ class AnimationMetadata:
                 quality_rating=max(0, min(5, data.get('quality_rating', 0.0))),  # Clamp to valid range
                 usage_count=max(0, data.get('usage_count', 0)),  # Ensure non-negative
                 folder_path=data.get('folder_path', 'Root'),
-                thumbnail=data.get('thumbnail', ''),
+                preview=data.get('preview', data.get('thumbnail', '')),  # Migrate from thumbnail
                 storage_method=data.get('storage_method', 'json_keyframes'),
                 blend_reference=blend_reference,
                 extraction_time_seconds=max(0, data.get('extraction_time_seconds', 30.0)),
@@ -348,13 +348,13 @@ class AnimationMetadata:
         return metadata
     
     @classmethod
-    def from_blender_data(cls, animation_data: Dict[str, Any], thumbnail_path: str = "") -> 'AnimationMetadata':
+    def from_blender_data(cls, animation_data: Dict[str, Any], preview_path: str = "") -> 'AnimationMetadata':
         """
         Create AnimationMetadata instance from Blender animation data.
         
         Args:
             animation_data: Dictionary containing animation data from Blender extraction
-            thumbnail_path: Relative path to thumbnail image
+            preview_path: Relative path to preview video (MP4)
             
         Returns:
             AnimationMetadata: New instance with mapped fields from animation_data
@@ -503,7 +503,7 @@ class AnimationMetadata:
                 quality_rating=max(0, min(5, animation_data.get('quality_rating', 0.0))),
                 usage_count=max(0, animation_data.get('usage_count', 0)),
                 folder_path=animation_data.get('folder_path', 'Root'),
-                thumbnail=thumbnail_path,
+                preview=preview_path,
                 storage_method=animation_data.get('storage_method', 'blend_file'),
                 blend_reference=blend_reference,
                 extraction_time_seconds=max(0, animation_data.get('extraction_time_seconds', 1.5)),

@@ -1,5 +1,5 @@
 """
-Animation Library Server Module - COMPLETE FILE WITH FIXED THUMBNAIL UPDATE
+Animation Library Server Module - COMPLETE FILE WITH FIXED PREVIEW UPDATE
 Replace your entire src/blender_animation_library/server.py with this file
 """
 
@@ -157,8 +157,8 @@ class AnimationLibraryServer:
                 self.send_scene_info()
                 
             elif command == 'extract_animation':
-                # Use the new method with thumbnail capture by default
-                self.extract_current_animation_with_thumbnail()
+                # Use the new method with preview capture by default
+                self.extract_current_animation_with_preview()
                 
             elif command == 'apply_animation':
                 self.apply_animation_from_library(data)
@@ -166,8 +166,8 @@ class AnimationLibraryServer:
             elif command == 'get_performance_info':
                 self.send_performance_info()
                 
-            elif command == 'update_thumbnail':
-                self.update_animation_thumbnail(data)
+            elif command == 'update_preview':
+                self.update_animation_preview(data)
                 
         except Exception as e:
             print(f"❌ Command processing error: {e}")
@@ -225,8 +225,8 @@ class AnimationLibraryServer:
                 'error_type': 'extraction_failed'
             })
     
-    def extract_current_animation_with_thumbnail(self):
-        """Extract animation using professional .blend file storage with thumbnail capture"""
+    def extract_current_animation_with_preview(self):
+        """Extract animation using professional .blend file storage with preview capture"""
         try:
             if not (bpy.context.active_object and 
                     bpy.context.active_object.type == 'ARMATURE' and
@@ -242,11 +242,11 @@ class AnimationLibraryServer:
             armature = bpy.context.active_object
             action = armature.animation_data.action
             
-            print(f"🎬 Professional extraction with thumbnail: {action.name} from {armature.name}")
+            print(f"🎬 Professional extraction with preview: {action.name} from {armature.name}")
             
             # Use professional .blend file extraction
             start_time = time.time()
-            metadata = self.blend_storage.extract_animation_to_blend_with_thumbnail(
+            metadata = self.blend_storage.extract_animation_to_blend_with_preview(
                 armature.name,
                 action.name
             )
@@ -259,22 +259,31 @@ class AnimationLibraryServer:
                 'storage_optimization': '90% smaller than JSON'
             })
             
+            # DEBUG: Log metadata before sending to GUI
+            print(f"🔍 DEBUG: About to send metadata to GUI:")
+            print(f"   📁 Type: {metadata.get('type')}")
+            print(f"   📁 Animation ID: {metadata.get('animation_id')}")
+            print(f"   📁 Blend file: {metadata.get('blend_file')}")
+            print(f"   🎬 Preview: {metadata.get('preview', 'N/A')}")
+            print(f"   📊 Files created: {metadata.get('files_created', 'N/A')}")
+            
             # Send to GUI
             self.send_message(metadata)
+            print(f"✅ DEBUG: Metadata sent to GUI via send_message()")
             
-            print(f"✅ Professional extraction with thumbnail complete: {extraction_time:.1f}s")
+            print(f"✅ Professional extraction with preview complete: {extraction_time:.1f}s")
             print("⚡ Ready for instant application (0.5s)")
             
         except Exception as e:
-            print(f"❌ Professional extraction with thumbnail failed: {e}")
+            print(f"❌ Professional extraction with preview failed: {e}")
             self.send_message({
                 'type': 'error',
-                'message': f'Professional extraction with thumbnail failed: {str(e)}',
+                'message': f'Professional extraction with preview failed: {str(e)}',
                 'error_type': 'extraction_failed'
             })
     
-    def update_animation_thumbnail(self, data):
-        """Update thumbnail for an existing animation - FIXED VERSION with folder path"""
+    def update_animation_preview(self, data):
+        """Update preview for an existing animation - FIXED VERSION with folder path"""
         try:
             animation_name = data.get('animation_name')
             animation_id = data.get('animation_id')
@@ -283,54 +292,54 @@ class AnimationLibraryServer:
             if not animation_name and not animation_id:
                 self.send_message({
                     'type': 'error',
-                    'message': 'No animation name or ID provided for thumbnail update',
+                    'message': 'No animation name or ID provided for preview update',
                     'error_type': 'missing_animation_identifier'
                 })
                 return
             
             # Use animation_name if provided, otherwise use animation_id
             target_identifier = animation_name if animation_name else animation_id
-            print(f"🔄 Server: Updating thumbnail for animation: {target_identifier} in folder: {folder_path}")
+            print(f"🔄 Server: Updating preview for animation: {target_identifier} in folder: {folder_path}")
             
-            # Call the FIXED update thumbnail operator with folder path
+            # Call the FIXED update preview operator with folder path
             try:
                 if animation_name:
-                    result = bpy.ops.animationlibrary.update_thumbnail(
+                    result = bpy.ops.animationlibrary.update_preview(
                         animation_name=animation_name, 
                         folder_path=folder_path
                     )
                 else:
-                    result = bpy.ops.animationlibrary.update_thumbnail(
+                    result = bpy.ops.animationlibrary.update_preview(
                         animation_name=animation_id,
                         folder_path=folder_path
                     )
                 
-                # The operator already sends the thumbnail_updated message on success
+                # The operator already sends the preview_updated message on success
                 if result == {'FINISHED'}:
-                    print(f"✅ Server: Thumbnail update operator completed successfully for: {target_identifier}")
-                    # Don't send duplicate message - operator already sent thumbnail_updated
+                    print(f"✅ Server: Preview update operator completed successfully for: {target_identifier}")
+                    # Don't send duplicate message - operator already sent preview_updated
                 else:
                     self.send_message({
                         'type': 'error',
-                        'message': f'Failed to update thumbnail for animation {target_identifier}',
-                        'error_type': 'thumbnail_update_failed'
+                        'message': f'Failed to update preview for animation {target_identifier}',
+                        'error_type': 'preview_update_failed'
                     })
-                    print(f"❌ Server: Thumbnail update failed for: {target_identifier}")
+                    print(f"❌ Server: Preview update failed for: {target_identifier}")
                     
             except Exception as op_error:
                 print(f"⚠️ Server: Operator call failed: {op_error}")
                 self.send_message({
                     'type': 'error',
-                    'message': f'Thumbnail update operator failed: {str(op_error)}',
+                    'message': f'Preview update operator failed: {str(op_error)}',
                     'error_type': 'operator_failed'
                 })
                 
         except Exception as e:
-            print(f"❌ Server: Thumbnail update error: {e}")
+            print(f"❌ Server: Preview update error: {e}")
             self.send_message({
                 'type': 'error',
-                'message': f'Thumbnail update error: {str(e)}',
-                'error_type': 'thumbnail_update_error'
+                'message': f'Preview update error: {str(e)}',
+                'error_type': 'preview_update_error'
             })
     
     def apply_animation_from_library(self, data):

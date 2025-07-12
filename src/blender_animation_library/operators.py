@@ -5,7 +5,6 @@ Main registration point for all operator modules
 This file has been refactored into a modular structure:
 - ops/server_ops.py - Server-related operators  
 - ops/library_ops.py - Library management operators
-- ops/thumbnail_ops.py - Thumbnail-related operators
 - ops/utils.py - Shared utility functions
 - ops/__init__.py - Registration coordination
 

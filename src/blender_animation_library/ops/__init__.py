@@ -17,8 +17,8 @@ from .library_ops import (
     ANIMLIB_OT_validate_library,
 )
 
-from .thumbnail_ops import (
-    ANIMATIONLIBRARY_OT_update_thumbnail,
+from .preview_ops import (
+    ANIMATIONLIBRARY_OT_update_preview,
 )
 
 from .utils import (
@@ -39,8 +39,8 @@ classes = [
     ANIMLIB_OT_optimize_library,
     ANIMLIB_OT_validate_library,
     
-    # Thumbnail operators
-    ANIMATIONLIBRARY_OT_update_thumbnail,
+    # Preview operators
+    ANIMATIONLIBRARY_OT_update_preview,
 ]
 
 def register():

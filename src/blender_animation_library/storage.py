@@ -22,7 +22,12 @@ class BlendFileAnimationStorage:
         self.actions_path = self.library_path / 'actions'  # Legacy support
         self.animations_path = self.library_path / 'animations'  # NEW: Primary storage
         self.metadata_path = self.library_path / 'metadata'
-        self.thumbnails_path = self.library_path / 'thumbnails'
+        self.previews_path = self.library_path / 'previews'  # Updated from thumbnails_path
+        
+        print(f"🔍 DEBUG: BlendFileAnimationStorage initialized")
+        print(f"🔍 DEBUG: Library path: {self.library_path}")
+        print(f"🔍 DEBUG: Animations path: {self.animations_path}")
+        print(f"🔍 DEBUG: Previews path: {self.previews_path}")
         
         # Ensure directories exist
         self._ensure_directories()
@@ -31,19 +36,32 @@ class BlendFileAnimationStorage:
     
     def _ensure_directories(self):
         """Ensure all required directories exist"""
+        print(f"🔍 DEBUG: _ensure_directories called")
+        
         self.library_path.mkdir(exist_ok=True)
+        print(f"🔍 DEBUG: Created/confirmed library_path: {self.library_path}")
+        
         self.actions_path.mkdir(exist_ok=True)  # Legacy support
+        print(f"🔍 DEBUG: Created/confirmed actions_path: {self.actions_path}")
+        
         self.animations_path.mkdir(exist_ok=True)  # NEW: Primary storage
+        print(f"🔍 DEBUG: Created/confirmed animations_path: {self.animations_path}")
+        
         self.metadata_path.mkdir(exist_ok=True)
-        self.thumbnails_path.mkdir(exist_ok=True)
+        print(f"🔍 DEBUG: Created/confirmed metadata_path: {self.metadata_path}")
+        
+        self.previews_path.mkdir(exist_ok=True)  # Updated from thumbnails_path
+        print(f"🔍 DEBUG: Created/confirmed previews_path: {self.previews_path}")
         
         # Create Root folder in animations directory
         root_animations = self.animations_path / "Root"
         root_animations.mkdir(exist_ok=True)
+        print(f"🔍 DEBUG: Created/confirmed Root animations folder: {root_animations}")
         
-        # Create Root folder in thumbnails directory  
-        root_thumbnails = self.thumbnails_path / "Root"
-        root_thumbnails.mkdir(exist_ok=True)
+        # Create Root folder in previews directory (updated from thumbnails)
+        root_previews = self.previews_path / "Root"
+        root_previews.mkdir(exist_ok=True)
+        print(f"🔍 DEBUG: Created/confirmed Root previews folder: {root_previews}")
     
     def extract_animation_to_blend(self, armature_name: str, action_name: str) -> Dict[str, Any]:
         """
@@ -112,11 +130,19 @@ class BlendFileAnimationStorage:
         
         return metadata
     
-    def extract_animation_to_blend_with_thumbnail(self, armature_name: str, action_name: str) -> Dict[str, Any]:
+    def extract_animation_to_blend_with_preview(self, armature_name: str, action_name: str) -> Dict[str, Any]:
         """
-        Professional .blend file extraction with perfect fidelity and thumbnail capture
+        Professional .blend file extraction with perfect fidelity and video preview capture
         99% performance improvement over JSON recreation
         """
+        print(f"🔍 DEBUG: Starting extraction...")
+        print(f"🔍 DEBUG: Library path: {self.library_path}")
+        print(f"🔍 DEBUG: Library path exists: {self.library_path.exists()}")
+        print(f"🔍 DEBUG: Animations path: {self.animations_path}")
+        print(f"🔍 DEBUG: Animations path exists: {self.animations_path.exists()}")
+        print(f"🔍 DEBUG: Previews path: {self.previews_path}")
+        print(f"🔍 DEBUG: Previews path exists: {self.previews_path.exists()}")
+        
         armature = bpy.context.active_object
         action = armature.animation_data.action
         
@@ -126,27 +152,69 @@ class BlendFileAnimationStorage:
         # Generate professional animation ID
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         animation_id = f"{armature_name}_{action_name}_{timestamp}".replace(" ", "_").replace("|", "_")
+        print(f"🔍 DEBUG: Generated animation_id: {animation_id}")
         
         # Professional .blend file path - NEW: Use animations/Root/ structure
         blend_filename = f"{animation_id}.blend"
         folder_path = "Root"  # Default folder for new animations
         blend_path = self.animations_path / folder_path / blend_filename
         
-        print(f"💾 Professional extraction with thumbnail to: {blend_path}")
+        print(f"🔍 DEBUG: Target folder path: {folder_path}")
+        print(f"🔍 DEBUG: Blend filename: {blend_filename}")
+        print(f"🔍 DEBUG: Full blend path: {blend_path}")
+        
+        # Ensure the animations directory exists before saving
+        animations_folder = self.animations_path / folder_path
+        print(f"🔍 DEBUG: Target animations folder: {animations_folder}")
+        print(f"🔍 DEBUG: Animations folder exists before mkdir: {animations_folder.exists()}")
+        
+        # Create directory with debug
+        try:
+            animations_folder.mkdir(parents=True, exist_ok=True)
+            print(f"✅ DEBUG: Directory created/confirmed exists: {animations_folder}")
+            print(f"✅ DEBUG: Directory exists after mkdir: {animations_folder.exists()}")
+        except Exception as e:
+            print(f"❌ DEBUG: Directory creation failed: {e}")
+            raise e
+        
+        print(f"💾 Professional extraction with preview to: {blend_path}")
         
         # Save action to dedicated .blend file with perfect fidelity
-        self._save_action_to_blend_file(action, blend_path)
+        try:
+            print(f"🔍 DEBUG: About to save .blend file to: {blend_path}")
+            self._save_action_to_blend_file(action, blend_path)
+            print(f"✅ DEBUG: .blend file saved successfully")
+            print(f"✅ DEBUG: .blend file exists: {blend_path.exists()}")
+            if blend_path.exists():
+                print(f"✅ DEBUG: .blend file size: {blend_path.stat().st_size} bytes")
+        except Exception as e:
+            print(f"❌ DEBUG: .blend file save failed: {e}")
+            raise e
         
-        # Capture thumbnail with folder structure
-        thumbnail_path = self._capture_animation_thumbnail(animation_id, folder_path)
+        # Thumbnail system removed - using video previews only
         
-        # --- Automatic Playblast Capture ---
-        preview_dir = self.library_path / "previews"
-        preview_dir.mkdir(exist_ok=True)
+        # --- Primary Video Preview Capture ---
+        print(f"🎬 DEBUG: Starting preview creation for {animation_id}")
+        preview_dir = self.library_path / "previews" / folder_path
+        print(f"🔍 DEBUG: Preview directory: {preview_dir}")
+        print(f"🔍 DEBUG: Preview directory exists before mkdir: {preview_dir.exists()}")
+        
+        try:
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            print(f"✅ DEBUG: Preview directory created/confirmed: {preview_dir}")
+            print(f"✅ DEBUG: Preview directory exists after mkdir: {preview_dir.exists()}")
+        except Exception as e:
+            print(f"❌ DEBUG: Preview directory creation failed: {e}")
+            raise e
+        
         preview_filename = f"{animation_id}.mp4"
         preview_path = preview_dir / preview_filename
+        print(f"🔍 DEBUG: Full preview path: {preview_path}")
+        
         frame_range = self._get_action_frame_range(action)
         start_frame, end_frame = frame_range
+        print(f"🔍 DEBUG: Frame range: {start_frame} to {end_frame}")
+        
         scene = bpy.context.scene
         original_settings = {
             'filepath': scene.render.filepath,
@@ -160,19 +228,31 @@ class BlendFileAnimationStorage:
             'ffmpeg_codec': scene.render.ffmpeg.codec if hasattr(scene.render, 'ffmpeg') else None,
             'ffmpeg_video_bitrate': scene.render.ffmpeg.video_bitrate if hasattr(scene.render, 'ffmpeg') else None,
         }
+        
+        relative_preview_path = ""  # Initialize preview path
+        
         try:
+            print(f"🎬 DEBUG: Setting up render settings for preview")
             scene.frame_start = start_frame
             scene.frame_end = end_frame
             scene.render.resolution_x = 512
             scene.render.resolution_y = 512
             scene.render.fps = 24
             scene.render.fps_base = 1.0
-            scene.render.filepath = str(preview_path.with_suffix("").absolute())
+            
+            # Convert to absolute path for render filepath
+            abs_preview_path = preview_path.resolve()
+            render_path_without_ext = str(abs_preview_path.with_suffix(""))
+            scene.render.filepath = render_path_without_ext
+            print(f"🔍 DEBUG: Render filepath set to: {render_path_without_ext}")
+            
             scene.render.image_settings.file_format = 'FFMPEG'
             if hasattr(scene.render, 'ffmpeg'):
                 scene.render.ffmpeg.format = 'MPEG4'
                 scene.render.ffmpeg.codec = 'H264'
                 scene.render.ffmpeg.video_bitrate = 6000
+                print(f"🔍 DEBUG: FFmpeg settings configured")
+            
             # Use EEVEE or fallback
             available_engines = [item.identifier for item in bpy.types.Scene.bl_rna.properties['render'].bl_rna.properties['engine'].enum_items]
             if 'BLENDER_EEVEE_NEXT' in available_engines:
@@ -181,13 +261,46 @@ class BlendFileAnimationStorage:
                 scene.render.engine = 'BLENDER_EEVEE'
             else:
                 scene.render.engine = 'BLENDER_WORKBENCH'
+            print(f"🔍 DEBUG: Render engine set to: {scene.render.engine}")
+            
             # Playblast capture
-            print(f"🎬 Capturing playblast preview: {preview_path} [{start_frame}-{end_frame}]")
+            print(f"🎬 DEBUG: Starting playblast capture: {preview_path} [{start_frame}-{end_frame}]")
+            print(f"🔍 DEBUG: Preview file exists before render: {preview_path.exists()}")
+            
             bpy.ops.render.opengl(animation=True, view_context=True)
-            print(f"✅ Playblast preview saved: {preview_path}")
-            relative_preview_path = f"previews/{preview_filename}"
+            
+            print(f"🔍 DEBUG: Render operation completed")
+            print(f"🔍 DEBUG: Preview file exists after render: {preview_path.exists()}")
+            
+            # VERIFY PREVIEW FILE WAS ACTUALLY CREATED
+            if preview_path.exists():
+                file_size = preview_path.stat().st_size
+                print(f"✅ DEBUG: Preview file created successfully!")
+                print(f"✅ DEBUG: Preview path: {preview_path}")
+                print(f"✅ DEBUG: Preview file size: {file_size} bytes")
+                
+                if file_size > 0:
+                    relative_preview_path = f"previews/{folder_path}/{preview_filename}"
+                    print(f"✅ DEBUG: Preview relative path: {relative_preview_path}")
+                else:
+                    print(f"❌ DEBUG: Preview file is empty (0 bytes)!")
+                    relative_preview_path = ""
+            else:
+                print(f"❌ DEBUG: Preview file NOT found after render operation!")
+                print(f"❌ DEBUG: Expected at: {preview_path}")
+                
+                # Check if any files were created in the directory
+                if preview_dir.exists():
+                    files_in_dir = list(preview_dir.iterdir())
+                    print(f"🔍 DEBUG: Files in preview directory: {[f.name for f in files_in_dir]}")
+                
+                relative_preview_path = ""
+                
         except Exception as e:
-            print(f"⚠️ Playblast preview failed: {e}")
+            print(f"❌ DEBUG: Playblast preview failed with error: {e}")
+            print(f"❌ DEBUG: Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
             relative_preview_path = ""
         finally:
             # Restore original render settings
@@ -212,6 +325,18 @@ class BlendFileAnimationStorage:
         file_size_mb = self._get_file_size_mb(blend_path)
         animated_bones = self._get_animated_bone_names(action)
         
+        # FINAL VERIFICATION OF CREATED FILES
+        print(f"🔍 DEBUG: Final file verification:")
+        print(f"🔍 DEBUG: .blend file exists: {blend_path.exists()}")
+        if blend_path.exists():
+            blend_size = blend_path.stat().st_size
+            print(f"🔍 DEBUG: .blend file size: {blend_size} bytes")
+        
+        print(f"🔍 DEBUG: Preview file exists: {preview_path.exists() if 'preview_path' in locals() else 'N/A'}")
+        if 'preview_path' in locals() and preview_path.exists():
+            preview_size = preview_path.stat().st_size
+            print(f"🔍 DEBUG: Preview file size: {preview_size} bytes")
+        
         # Create professional metadata with thumbnail
         metadata = {
             'type': 'animation_extracted',
@@ -220,8 +345,8 @@ class BlendFileAnimationStorage:
             'armature_name': armature_name,
             'blend_file': blend_filename,
             'blend_action_name': action.name,
-            'thumbnail': thumbnail_path,  # Add thumbnail path to metadata
             'preview': relative_preview_path,  # Add preview path to metadata
+            'folder_path': folder_path,  # Add folder path to metadata
             'frame_range': frame_range,
             'total_bones_animated': bone_count,
             'total_keyframes': keyframe_count,
@@ -233,18 +358,32 @@ class BlendFileAnimationStorage:
             'extraction_time_seconds': 1.5,  # Professional performance
             'performance_level': 'professional',
             'fidelity': 'perfect',
-            'cross_project_compatible': True
+            'cross_project_compatible': True,
+            # DEBUG: Add file verification results
+            'files_created': {
+                'blend_file': blend_path.exists(),
+                'preview_file': preview_path.exists() if 'preview_path' in locals() else False,
+                'blend_size_bytes': blend_path.stat().st_size if blend_path.exists() else 0,
+                'preview_size_bytes': preview_path.stat().st_size if 'preview_path' in locals() and preview_path.exists() else 0
+            }
         }
         
-        print(f"✅ Professional extraction with thumbnail complete:")
+        print(f"🔍 DEBUG: Metadata created:")
+        print(f"   📁 Animation ID: {animation_id}")
+        print(f"   📁 Folder path: {folder_path}")
+        print(f"   📁 Blend file: {blend_filename}")
+        print(f"   🎬 Preview: {relative_preview_path or 'NOT CREATED'}")
+        print(f"   📊 Files verification: {metadata['files_created']}")
+        
+        print(f"✅ Professional extraction with preview complete:")
         print(f"   📁 File: {blend_filename} ({file_size_mb:.2f} MB)")
-        print(f"   📸 Thumbnail: {thumbnail_path or 'Not captured'}")
         print(f"   🎬 Preview: {relative_preview_path or 'Not captured'}")
         print(f"   🦴 Bones: {bone_count} animated")
         print(f"   🔑 Keyframes: {keyframe_count}")
         print(f"   ⚡ Performance: 97% faster than traditional")
         print(f"   🎯 Fidelity: Perfect preservation")
         
+        print(f"🔍 DEBUG: Returning metadata to caller")
         return metadata
 
     def apply_animation_from_blend(self, animation_metadata: Dict[str, Any], 
@@ -346,17 +485,69 @@ class BlendFileAnimationStorage:
         return result
     
     def _save_action_to_blend_file(self, action, blend_path: Path):
-        """Save action to .blend file with professional optimization"""
-        # Professional fake user setting for persistence
-        action.use_fake_user = True
+        """Save action to .blend file with comprehensive Blender-side debugging"""
+        print(f"🔍 BLENDER DEBUG: Starting .blend save process")
+        print(f"🔍 BLENDER DEBUG: Action: {action.name if action else 'None'}")
+        print(f"🔍 BLENDER DEBUG: Target path: {blend_path}")
         
-        # Professional data block preparation
-        data_blocks = {action}
+        if not action:
+            raise ValueError("No action provided for saving")
         
-        # Professional .blend file writing with Blender's native optimization
-        bpy.data.libraries.write(str(blend_path), data_blocks)
+        abs_path = blend_path.resolve()
+        print(f"🔍 BLENDER DEBUG: Absolute path: {abs_path}")
+        print(f"🔍 BLENDER DEBUG: Parent exists: {abs_path.parent.exists()}")
         
-        print(f"💾 Professional .blend file created: {action.name}")
+        # Remove existing file if it exists to ensure clean save
+        if abs_path.exists():
+            try:
+                abs_path.unlink()
+                print(f"🔍 BLENDER DEBUG: Removed existing file: {abs_path}")
+            except Exception as e:
+                print(f"⚠️ BLENDER DEBUG: Could not remove existing file: {e}")
+        
+        # Ensure directory exists
+        try:
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            print(f"✅ BLENDER DEBUG: Directory created/verified")
+        except Exception as e:
+            print(f"❌ BLENDER DEBUG: Directory creation failed: {e}")
+            raise
+        
+        # Check action validity
+        print(f"🔍 BLENDER DEBUG: Action keyframes: {len(action.fcurves) if action.fcurves else 0}")
+        print(f"🔍 BLENDER DEBUG: Action use_fake_user before: {action.use_fake_user}")
+        
+        try:
+            action.use_fake_user = True
+            print(f"🔍 BLENDER DEBUG: Action use_fake_user after: {action.use_fake_user}")
+            
+            data_blocks = {action}
+            print(f"🔍 BLENDER DEBUG: Data blocks to save: {len(data_blocks)}")
+            
+            # Attempt the save
+            print(f"🔍 BLENDER DEBUG: Calling bpy.data.libraries.write()...")
+            bpy.data.libraries.write(str(abs_path), data_blocks)
+            print(f"🔍 BLENDER DEBUG: bpy.data.libraries.write() completed without exception")
+            
+            # Verify file creation
+            if abs_path.exists():
+                size = abs_path.stat().st_size
+                print(f"✅ BLENDER DEBUG: File verified: {abs_path} ({size} bytes)")
+                if size > 0:
+                    print(f"� BLENDER DEBUG: SUCCESS - Valid .blend file created")
+                    return
+                else:
+                    print(f"❌ BLENDER DEBUG: File created but has 0 bytes!")
+                    abs_path.unlink()  # Remove empty file
+            else:
+                print(f"❌ BLENDER DEBUG: FILE NOT CREATED despite no error!")
+                print(f"❌ BLENDER DEBUG: Expected location: {abs_path}")
+                raise Exception(f"Blend file was not created at: {abs_path}")
+                
+        except Exception as e:
+            print(f"❌ BLENDER DEBUG: Save operation failed: {e}")
+            print(f"❌ BLENDER DEBUG: Exception type: {type(e)}")
+            raise
     
     def _apply_frame_offset(self, action, frame_offset: int):
         """Apply frame offset with professional precision"""
@@ -495,123 +686,7 @@ class BlendFileAnimationStorage:
         """Public method for counting bones"""
         return self._count_animated_bones(action)
     
-    def _capture_animation_thumbnail(self, animation_id: str, folder_path: str = "Root") -> str:
-        """
-        Capture a screenshot of the current 3D viewport for animation thumbnail.
-        
-        Args:
-            animation_id: Unique identifier for the animation
-            folder_path: Folder path for the animation (defaults to "Root")
-            
-        Returns:
-            str: Relative path to the saved thumbnail file, or empty string if failed
-        """
-        try:
-            # Ensure thumbnails directory with folder structure exists
-            thumbnails_dir = self.library_path / "thumbnails" / folder_path
-            thumbnails_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate thumbnail filename
-            thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = thumbnails_dir / thumbnail_filename
-            
-            # Get the current 3D viewport area
-            viewport_area = None
-            for area in bpy.context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    viewport_area = area
-                    break
-            
-            if not viewport_area:
-                print("⚠️ No 3D viewport found for thumbnail capture")
-                return ""
-            
-            # Override context for the 3D viewport
-            with bpy.context.temp_override(area=viewport_area):
-                # Set viewport to solid or material preview for better thumbnails
-                for space in viewport_area.spaces:
-                    if space.type == 'VIEW_3D':
-                        # Store original shading
-                        original_shading = space.shading.type
-                        
-                        # Set better shading for thumbnails
-                        if space.shading.type == 'WIREFRAME':
-                            space.shading.type = 'SOLID'
-                        
-                        # Ensure proper viewport settings for screenshot
-                        space.overlay.show_overlays = True
-                        space.overlay.show_extras = False
-                        space.overlay.show_cursor = False
-                        space.overlay.show_outline_selected = False
-                        
-                        break
-                
-                # Use render-based capture for better quality and reliability
-                try:
-                    # Save current render settings
-                    scene = bpy.context.scene
-                    original_filepath = scene.render.filepath
-                    original_engine = scene.render.engine
-                    original_resolution_x = scene.render.resolution_x
-                    original_resolution_y = scene.render.resolution_y
-                    
-                    # Set render settings for thumbnail (512x512 is good for thumbnails)
-                    scene.render.engine = 'BLENDER_EEVEE'
-                    scene.render.resolution_x = 512
-                    scene.render.resolution_y = 512
-                    scene.render.filepath = str(thumbnail_path.with_suffix(''))  # Remove extension, Blender adds it
-                    
-                    # Render current view
-                    bpy.ops.render.opengl(write_still=True, view_context=True)
-                    
-                    # Restore render settings
-                    scene.render.filepath = original_filepath
-                    scene.render.engine = original_engine
-                    scene.render.resolution_x = original_resolution_x
-                    scene.render.resolution_y = original_resolution_y
-                    
-                except Exception as render_error:
-                    print(f"⚠️ Render-based thumbnail capture failed: {render_error}")
-                    # Fallback to screen.screenshot
-                    try:
-                        bpy.ops.screen.screenshot(filepath=str(thumbnail_path), check_existing=False)
-                    except Exception as screenshot_error:
-                        print(f"⚠️ Screenshot fallback failed: {screenshot_error}")
-                        return ""
-                
-                # Restore original shading if we changed it
-                try:
-                    for space in viewport_area.spaces:
-                        if space.type == 'VIEW_3D':
-                            space.shading.type = original_shading
-                            break
-                except:
-                    pass
-            
-            # Verify thumbnail was created (check for .png file since Blender might add extension)
-            if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
-                relative_path = f"thumbnails/{folder_path}/{thumbnail_filename}"
-                print(f"✅ Thumbnail captured: {relative_path}")
-                return relative_path
-            else:
-                # Check if Blender added a frame number (it sometimes does with opengl render)
-                potential_files = list(thumbnails_dir.glob(f"{animation_id}*.png"))
-                if potential_files:
-                    actual_file = potential_files[0]
-                    # Rename to the expected filename
-                    actual_file.rename(thumbnail_path)
-                    relative_path = f"thumbnails/{folder_path}/{thumbnail_filename}"
-                    print(f"✅ Thumbnail captured and renamed: {relative_path}")
-                    return relative_path
-                else:
-                    print("⚠️ Thumbnail file was not created or is empty")
-                    return ""
-                
-        except Exception as e:
-            print(f"❌ Thumbnail capture failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return ""
+    # Thumbnail system removed - using video previews only
 
 
 def register():

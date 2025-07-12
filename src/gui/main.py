@@ -154,7 +154,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         animation_grid.drag_in_progress.connect(self.on_drag_state_changed)
         
         # Metadata panel signals
-        metadata_panel.thumbnail_update_requested.connect(self.on_thumbnail_update_requested)
+        metadata_panel.preview_update_requested.connect(self.on_preview_update_requested)
     
     def get_application_style(self) -> str:
         """Get the Studio Library application stylesheet"""
@@ -498,17 +498,17 @@ class AnimationLibraryMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error showing animation details: {e}")
     
-    def on_thumbnail_update_requested(self, animation_identifier: str, folder_path: str):
-        """Handle thumbnail update request from metadata panel"""
+    def on_preview_update_requested(self, animation_identifier: str, folder_path: str):
+        """Handle preview update request from metadata panel"""
         try:
-            print(f"📨 DEBUG: Received thumbnail update request for: '{animation_identifier}' in folder: '{folder_path}'")
+            print(f"📨 DEBUG: Received preview update request for: '{animation_identifier}' in folder: '{folder_path}'")
             print(f"🔗 DEBUG: Connection status: {self.blender_connection.is_connected()}")
             
             if not self.blender_connection.is_connected():
                 print("❌ DEBUG: Not connected to Blender")
                 QMessageBox.warning(
                     self, "Not Connected", 
-                    "Please connect to Blender first to update thumbnails"
+                    "Please connect to Blender first to update previews"
                 )
                 return
             
@@ -522,23 +522,23 @@ class AnimationLibraryMainWindow(QMainWindow):
             ):
                 animation_name = self.current_animation.name
             
-            # Send the update request to Blender with folder path
+            # Send the update request to Blender with folder path (temporarily using thumbnail method)
             success = self.blender_connection.send_update_thumbnail(animation_name, folder_path)
             print(f"📤 DEBUG: Send result: {success}")
             
             if success:
-                message = f"Thumbnail update requested for: {animation_name}"
+                message = f"Preview update requested for: {animation_name}"
                 self.status_bar.showMessage(message, 3000)
                 logger.info(message)
             else:
-                error_msg = f"Failed to send thumbnail update request for: {animation_name}"
+                error_msg = f"Failed to send preview update request for: {animation_name}"
                 QMessageBox.warning(self, "Update Failed", error_msg)
                 logger.error(error_msg)
                 
         except Exception as e:
-            error_msg = f"Error requesting thumbnail update: {e}"
+            error_msg = f"Error requesting preview update: {e}"
             logger.error(error_msg)
-            QMessageBox.critical(self, "Error", f"Error requesting thumbnail update: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error requesting preview update: {str(e)}")
     
     def on_search_changed(self, search_text: str):
         """Handle search text change"""
@@ -1199,31 +1199,31 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.update_folder_counts_only(folder_stats)
         print(f"📊 Updated folder counts: {folder_stats}")
     
-    def on_thumbnail_updated(self, animation_name: str):
-        """Handle thumbnail updated confirmation from Blender with AGGRESSIVE refresh"""
+    def on_preview_updated(self, animation_name: str):
+        """Handle preview updated confirmation from Blender with AGGRESSIVE refresh"""
         # Simple debounce - ignore if same animation was just updated
-        if hasattr(self, '_last_thumbnail_update'):
-            if (self._last_thumbnail_update[0] == animation_name and 
-                time.time() - self._last_thumbnail_update[1] < 1.0):  # 1 second debounce
+        if hasattr(self, '_last_preview_update'):
+            if (self._last_preview_update[0] == animation_name and 
+                time.time() - self._last_preview_update[1] < 1.0):  # 1 second debounce
                 return
         
-        self._last_thumbnail_update = (animation_name, time.time())
+        self._last_preview_update = (animation_name, time.time())
         
         try:
-            print(f"🔄 MAIN: Received thumbnail update for: {animation_name}")
+            print(f"🔄 MAIN: Received preview update for: {animation_name}")
             
             # STEP 1: Refresh animation grid cards
             animation_grid = self.layout_manager.get_widget('animation_grid')
             if animation_grid:
                 print(f"🎬 MAIN: Refreshing animation grid...")
-                animation_grid.refresh_thumbnail(animation_name)
+                animation_grid.refresh_preview(animation_name)
             
             # STEP 2: Refresh metadata panel if it's showing this animation
             metadata_panel = self.layout_manager.get_widget('metadata_panel')
             if metadata_panel and metadata_panel.current_animation:
                 if animation_name == metadata_panel.current_animation.name:
                     print(f"🖼️ MAIN: Refreshing metadata panel...")
-                    metadata_panel.refresh_thumbnail(animation_name)
+                    metadata_panel.refresh_preview(animation_name)
             
             # STEP 3: Force application-wide refresh
             print(f"🔄 MAIN: Forcing application refresh...")
@@ -1235,10 +1235,10 @@ class AnimationLibraryMainWindow(QMainWindow):
                 print(f"✅ MAIN: Delayed refresh completed for: {animation_name}")
             ])
             
-            logger.info(f"✅ Thumbnail refreshed across all components for: {animation_name}")
+            logger.info(f"✅ Preview refreshed across all components for: {animation_name}")
             
         except Exception as e:
-            logger.error(f"❌ Error handling thumbnail update: {e}")
+            logger.error(f"❌ Error handling preview update: {e}")
             import traceback
             traceback.print_exc()
 

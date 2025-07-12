@@ -1,6 +1,6 @@
 """
-Animation Card Widget - COMPLETE FILE WITH FIXED THUMBNAIL REFRESH
-Replace your entire src/gui/widgets/animation_card.py with this file
+Animation Card Widget - VIDEO PREVIEW SYSTEM
+Complete migration from static thumbnails to dynamic video previews
 """
 
 import time
@@ -9,8 +9,10 @@ from PySide6.QtWidgets import (
     QWidget, QMenu, QToolButton, QGraphicsDropShadowEffect, QGridLayout,
     QApplication, QInputDialog, QScrollArea
 )
-from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer, QMimeData
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient, QDrag, QPixmapCache
+from PySide6.QtCore import Qt, Signal, QSize, QPropertyAnimation, QEasingCurve, QRect, QTimer, QMimeData, QUrl
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QAction, QBrush, QPen, QLinearGradient, QDrag
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimediaWidgets import QVideoWidget
 from typing import Dict, Any, Optional
 import sys
 from pathlib import Path
@@ -23,354 +25,127 @@ if str(gui_dir) not in sys.path:
 from core.animation_data import AnimationMetadata
 
 
-class AnimationThumbnail(QLabel):
-    """Clean thumbnail widget with 140x140 size for optimal card utilization"""
+class AnimationPreview(QVideoWidget):
+    """Video preview widget with hover-to-play functionality (140x140 size)"""
     
     def __init__(self, animation_metadata: AnimationMetadata, parent=None):
         super().__init__(parent)
         self.animation_metadata = animation_metadata
         self.is_selected = False
-        self.last_loaded_path = None  # Track last loaded file path
         
-        self.setFixedSize(140, 140)  # Larger thumbnail for better card utilization
-        self.setAlignment(Qt.AlignCenter)
+        # Set fixed size for card integration
+        self.setFixedSize(140, 140)
         
-        # Load thumbnail image with clean styling
-        self.load_thumbnail_image()
+        # Setup media player
+        self.media_player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.audio_output.setVolume(0.0)  # Silent preview
+        
+        # Connect media player to video widget
+        self.media_player.setAudioOutput(self.audio_output)
+        self.media_player.setVideoOutput(self)
+        
+        # Load video preview
+        self.load_preview_video()
         
         # Clean styling with rounded corners
         self.setStyleSheet("""
-            QLabel {
+            QVideoWidget {
                 border: none;
                 border-radius: 8px;
                 background-color: #2e2e2e;
             }
         """)
     
-    def load_thumbnail_image(self):
-        """Load thumbnail image from file or show placeholder"""
-        thumbnail_loaded = False
+    def load_preview_video(self):
+        """Load MP4 preview video from file"""
+        preview_loaded = False
         
-        # Check if animation has thumbnail path in metadata
-        if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
-            thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
-            if thumbnail_path.exists():
-                # Load the actual thumbnail image
-                pixmap = self._load_pixmap_no_cache(thumbnail_path)
-                if not pixmap.isNull():
-                    self._set_centered_pixmap(pixmap)
-                    self.last_loaded_path = str(thumbnail_path)
-                    thumbnail_loaded = True
-                    print(f"🖼️ Loaded thumbnail from metadata: {thumbnail_path}")
+        # Check if animation has preview path in metadata
+        if hasattr(self.animation_metadata, 'preview') and self.animation_metadata.preview:
+            preview_path = Path("animation_library") / self.animation_metadata.preview
+            if preview_path.exists():
+                self.media_player.setSource(QUrl.fromLocalFile(str(preview_path.absolute())))
+                preview_loaded = True
+                print(f"🎬 Loaded preview from metadata: {preview_path}")
         
-        # Fallback to animation name-based thumbnail path
-        if not thumbnail_loaded:
-            # Try to construct thumbnail path from animation name using folder structure
+        # Fallback to animation ID-based preview path using folder structure
+        if not preview_loaded:
             animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
             folder_path = getattr(self.animation_metadata, 'folder_path', 'Root')
-            thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / folder_path / thumbnail_filename
+            preview_filename = f"{animation_id}.mp4"
+            preview_path = Path("animation_library") / "previews" / folder_path / preview_filename
             
-            if thumbnail_path.exists():
-                pixmap = self._load_pixmap_no_cache(thumbnail_path)
-                if not pixmap.isNull():
-                    self._set_centered_pixmap(pixmap)
-                    self.last_loaded_path = str(thumbnail_path)
-                    thumbnail_loaded = True
-                    print(f"🖼️ Loaded thumbnail from ID: {thumbnail_path}")
+            if preview_path.exists():
+                self.media_player.setSource(QUrl.fromLocalFile(str(preview_path.absolute())))
+                preview_loaded = True
+                print(f"🎬 Loaded preview from ID: {preview_path}")
         
-        # NEW: Search for any thumbnail file containing the animation name
-        if not thumbnail_loaded:
-            thumbnail_path = self._find_thumbnail_by_name()
-            if thumbnail_path:
-                pixmap = self._load_pixmap_no_cache(thumbnail_path)
-                if not pixmap.isNull():
-                    self._set_centered_pixmap(pixmap)
-                    self.last_loaded_path = str(thumbnail_path)
-                    thumbnail_loaded = True
-                    print(f"🖼️ Found thumbnail by name search: {thumbnail_path}")
+        # Search for any preview file containing the animation name
+        if not preview_loaded:
+            preview_path = self._find_preview_by_name()
+            if preview_path:
+                self.media_player.setSource(QUrl.fromLocalFile(str(preview_path.absolute())))
+                preview_loaded = True
+                print(f"🎬 Found preview by name search: {preview_path}")
         
-        # Fallback to placeholder icon if no image found
-        if not thumbnail_loaded:
-            self.show_placeholder_icon()
-            self.last_loaded_path = None
-            print(f"⚠️ No thumbnail found, using placeholder")
+        # No preview found - show placeholder
+        if not preview_loaded:
+            self.show_placeholder()
+            print(f"⚠️ No preview found for animation: {self.animation_metadata.name}")
     
-    def _find_thumbnail_by_name(self) -> Optional[Path]:
-        """Find thumbnail file by searching for files containing the animation name in folder structure"""
+    def _find_preview_by_name(self) -> Optional[Path]:
+        """Find preview file by searching for files containing the animation name"""
         try:
-            thumbnails_dir = Path("animation_library") / "thumbnails"
-            if not thumbnails_dir.exists():
-                return None
+            animation_name = self.animation_metadata.name.replace(" ", "_")
+            folder_path = getattr(self.animation_metadata, 'folder_path', 'Root')
+            previews_dir = Path("animation_library") / "previews" / folder_path
             
-            animation_name = self.animation_metadata.name
-            
-            # Search for PNG files containing the animation name in ALL subdirectories
-            all_thumbnails = list(thumbnails_dir.glob("**/*.png"))
-            matching_files = []
-            
-            for thumbnail_file in all_thumbnails:
-                if animation_name in thumbnail_file.name:
-                    matching_files.append(thumbnail_file)
-            
-            if matching_files:
-                # Use the most recent file if multiple matches
-                most_recent = max(matching_files, key=lambda f: f.stat().st_mtime)
-                print(f"🔍 Found matching thumbnail: {most_recent.name}")
-                return most_recent
-            
+            if previews_dir.exists():
+                # Search for MP4 files containing the animation name
+                for preview_file in previews_dir.glob("*.mp4"):
+                    if animation_name in preview_file.name:
+                        return preview_file
             return None
-            
         except Exception as e:
-            print(f"❌ Error searching for thumbnail: {e}")
+            print(f"⚠️ Error searching for preview: {e}")
             return None
     
-    def _load_pixmap_no_cache(self, image_path: Path) -> QPixmap:
-        """Load pixmap without using Qt's cache system"""
-        try:
-            # Force fresh load by checking file modification time
-            file_stat = image_path.stat()
-            
-            # Clear any existing cache for this file
-            QPixmapCache.remove(str(image_path))
-            
-            # Load with explicit no-cache
-            pixmap = QPixmap(str(image_path))
-            
-            if not pixmap.isNull():
-                # Force detach from any internal caching
-                pixmap = pixmap.copy()
-                return pixmap
-            else:
-                print(f"❌ THUMBNAIL: Pixmap is null for: {image_path}")
-                return QPixmap()
-                
-        except Exception as e:
-            print(f"❌ THUMBNAIL: Error loading {image_path}: {e}")
-            return QPixmap()
+    def show_placeholder(self):
+        """Show placeholder when no preview is available"""
+        # For now, just set background color - could be enhanced with a placeholder image
+        self.setStyleSheet("""
+            QVideoWidget {
+                border: 2px solid #555;
+                border-radius: 8px;
+                background-color: #1e1e1e;
+                color: #888;
+            }
+        """)
     
-    def _set_centered_pixmap(self, pixmap: QPixmap):
-        """Set pixmap centered in the label with dark background - optimized for 140x140"""
-        if pixmap.isNull():
-            return
-        
-        # Scale to fit 140x140 while maintaining aspect ratio
-        scaled_pixmap = pixmap.scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        
-        # Create a centered pixmap with dark background
-        final_pixmap = QPixmap(140, 140)
-        final_pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
-        
-        painter = QPainter(final_pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Center the scaled image
-        x = (140 - scaled_pixmap.width()) // 2
-        y = (140 - scaled_pixmap.height()) // 2
-        painter.drawPixmap(x, y, scaled_pixmap)
-        
-        painter.end()
-        self.setPixmap(final_pixmap)
+    def enterEvent(self, event):
+        """Play video on hover"""
+        if self.media_player.source().isValid():
+            self.media_player.play()
+        super().enterEvent(event)
     
-    def show_placeholder_icon(self):
-        """Show a clean placeholder icon for missing thumbnails - optimized for 140x140"""
-        pixmap = QPixmap(140, 140)
-        pixmap.fill(QColor(46, 46, 46))  # #2e2e2e background
-        
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Draw simple animation icon
-        painter.setPen(QPen(QColor("#666666"), 2))
-        painter.setBrush(QBrush(QColor("#666666")))
-        
-        # Simple figure representation - scaled for 140x140
-        center_x, center_y = 70, 70  # Updated center for 140x140
-        
-        # Head
-        painter.drawEllipse(center_x-8, center_y-25, 16, 16)
-        
-        # Body
-        painter.drawLine(center_x, center_y-9, center_x, center_y+15)
-        
-        # Arms
-        painter.drawLine(center_x-12, center_y-5, center_x+12, center_y-5)
-        
-        # Legs
-        painter.drawLine(center_x, center_y+15, center_x-8, center_y+30)
-        painter.drawLine(center_x, center_y+15, center_x+8, center_y+30)
-        
-        painter.end()
-        self.setPixmap(pixmap)
+    def leaveEvent(self, event):
+        """Pause video on leave"""
+        if self.media_player.source().isValid():
+            self.media_player.pause()
+            self.media_player.setPosition(0)  # Reset to beginning
+        super().leaveEvent(event)
+    
+    def refresh_preview(self):
+        """Refresh preview - reload the video file"""
+        print(f"🔄 Refreshing preview for: {self.animation_metadata.name}")
+        self.load_preview_video()
     
     def set_selected(self, selected: bool):
-        """Set selection state"""
+        """Update selection state"""
         self.is_selected = selected
-        # Selection will be handled by the parent card
-    
-    def refresh_thumbnail(self, animation_identifier: str):
-        """Refresh thumbnail for the specified animation with MAXIMUM force refresh"""
-        # Check if this thumbnail is for the updated animation
-        animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
-        
-        # Match by name or ID
-        if (animation_identifier == self.animation_metadata.name or 
-            animation_identifier == animation_id):
-            
-            print(f"🔄 THUMBNAIL: Starting MAXIMUM force refresh for: {animation_identifier}")
-            
-            # STEP 1: Clear ALL Qt pixmap caches AGGRESSIVELY
-            QPixmapCache.clear()
-            print(f"🧹 THUMBNAIL: Cleared Qt pixmap cache")
-            
-            # STEP 2: Clear this widget's current pixmap
-            self.clear()
-            print(f"🧹 THUMBNAIL: Cleared widget pixmap")
-            
-            # STEP 3: Force Qt to process all pending events
-            QApplication.processEvents()
-            
-            # STEP 4: Wait for file system to sync
-            time.sleep(0.2)  # Increased wait time
-            
-            # STEP 5: Force reload with maximum aggression
-            self.load_thumbnail_image_force_refresh()
-            
-            # STEP 6: Force widget update
-            self.update()
-            self.repaint()
-            QApplication.processEvents()
-            
-            print(f"✅ THUMBNAIL: MAXIMUM force refresh completed for: {animation_identifier}")
-    
-    def load_thumbnail_image_force_refresh(self):
-        """Load thumbnail image with MAXIMUM force refresh - searches all possible locations"""
-        thumbnail_loaded = False
-        
-        print(f"🔍 THUMBNAIL: Starting comprehensive thumbnail search...")
-        
-        # METHOD 1: Check metadata path with force refresh
-        if hasattr(self.animation_metadata, 'thumbnail') and self.animation_metadata.thumbnail:
-            thumbnail_path = Path("animation_library") / self.animation_metadata.thumbnail
-            print(f"🔍 METHOD 1: Checking metadata path: {thumbnail_path}")
-            
-            if thumbnail_path.exists():
-                try:
-                    file_stat = thumbnail_path.stat()
-                    print(f"🔍 METHOD 1: File exists - size: {file_stat.st_size}, modified: {file_stat.st_mtime}")
-                    
-                    pixmap = self._load_pixmap_force_refresh(thumbnail_path)
-                    if not pixmap.isNull():
-                        self._set_centered_pixmap(pixmap)
-                        thumbnail_loaded = True
-                        print(f"✅ METHOD 1: Successfully loaded from metadata path")
-                    else:
-                        print(f"❌ METHOD 1: Pixmap is null from metadata path")
-                        
-                except Exception as e:
-                    print(f"❌ METHOD 1: Error loading from metadata path: {e}")
-        
-        # METHOD 2: Try animation ID-based path with folder structure
-        if not thumbnail_loaded:
-            animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
-            folder_path = getattr(self.animation_metadata, 'folder_path', 'Root')
-            thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / folder_path / thumbnail_filename
-            
-            print(f"🔍 METHOD 2: Checking ID-based path: {thumbnail_path}")
-            
-            if thumbnail_path.exists():
-                try:
-                    file_stat = thumbnail_path.stat()
-                    print(f"🔍 METHOD 2: File exists - size: {file_stat.st_size}, modified: {file_stat.st_mtime}")
-                    
-                    pixmap = self._load_pixmap_force_refresh(thumbnail_path)
-                    if not pixmap.isNull():
-                        self._set_centered_pixmap(pixmap)
-                        thumbnail_loaded = True
-                        print(f"✅ METHOD 2: Successfully loaded from ID-based path")
-                    else:
-                        print(f"❌ METHOD 2: Pixmap is null from ID-based path")
-                        
-                except Exception as e:
-                    print(f"❌ METHOD 2: Error loading from ID-based path: {e}")
-        
-        # METHOD 3: Search all thumbnails directory for matching files
-        if not thumbnail_loaded:
-            print(f"🔍 METHOD 3: Searching thumbnails directory...")
-            
-            try:
-                thumbnails_dir = Path("animation_library") / "thumbnails"
-                if thumbnails_dir.exists():
-                    animation_name = self.animation_metadata.name
-                    all_thumbnails = list(thumbnails_dir.glob("*.png"))
-                    print(f"🔍 METHOD 3: Found {len(all_thumbnails)} total PNG files")
-                    
-                    # Find files containing the animation name
-                    matching_files = []
-                    for thumbnail_file in all_thumbnails:
-                        if animation_name in thumbnail_file.name:
-                            matching_files.append(thumbnail_file)
-                            print(f"🔍 METHOD 3: MATCH found: {thumbnail_file.name}")
-                    
-                    if matching_files:
-                        # Use the most recent file
-                        most_recent = max(matching_files, key=lambda f: f.stat().st_mtime)
-                        print(f"🔍 METHOD 3: Using most recent: {most_recent.name}")
-                        
-                        pixmap = self._load_pixmap_force_refresh(most_recent)
-                        if not pixmap.isNull():
-                            self._set_centered_pixmap(pixmap)
-                            thumbnail_loaded = True
-                            print(f"✅ METHOD 3: Successfully loaded from search")
-                        else:
-                            print(f"❌ METHOD 3: Pixmap is null from search")
-                    else:
-                        print(f"🔍 METHOD 3: No matching files found for '{animation_name}'")
-                        
-                        # Debug: List all files
-                        print(f"🔍 METHOD 3: All available files:")
-                        for f in all_thumbnails[:10]:  # Show first 10
-                            print(f"   - {f.name}")
-                        if len(all_thumbnails) > 10:
-                            print(f"   ... and {len(all_thumbnails) - 10} more")
-                            
-            except Exception as e:
-                print(f"❌ METHOD 3: Error in directory search: {e}")
-        
-        # Show placeholder if nothing worked
-        if not thumbnail_loaded:
-            self.show_placeholder_icon()
-            print(f"⚠️ THUMBNAIL: All methods failed, using placeholder icon")
-    
-    def _load_pixmap_force_refresh(self, image_path: Path) -> QPixmap:
-        """Load pixmap with MAXIMUM force - bypassing ALL caching mechanisms"""
-        try:
-            # Method 1: Clear Qt's pixmap cache for this specific file
-            QPixmapCache.remove(str(image_path))
-            
-            # Method 2: Read file directly into memory to bypass OS file caching
-            with open(image_path, 'rb') as f:
-                image_data = f.read()
-            
-            print(f"🔍 FORCE: Read {len(image_data)} bytes from {image_path.name}")
-            
-            # Method 3: Create pixmap from raw data
-            pixmap = QPixmap()
-            success = pixmap.loadFromData(image_data)
-            
-            if success and not pixmap.isNull():
-                # Method 4: Force detach to ensure no internal caching
-                pixmap = pixmap.copy()
-                print(f"✅ FORCE: Successfully created pixmap from raw data")
-                return pixmap
-            else:
-                print(f"❌ FORCE: Failed to create pixmap from raw data")
-                return QPixmap()
-                
-        except Exception as e:
-            print(f"❌ FORCE: Error in maximum force refresh: {e}")
-            return QPixmap()
+        # Could add visual selection feedback here if needed
+
 
 
 class AnimationCard(QFrame):
@@ -415,9 +190,9 @@ class AnimationCard(QFrame):
         layout.setContentsMargins(4, 4, 4, 4)  # Reduced from 8px to 4px
         layout.setSpacing(4)  # Reduced from 8px to 4px for tighter layout
         
-        # Thumbnail at top - 140x140px (increased from 120x120px)
-        self.thumbnail = AnimationThumbnail(self.animation_metadata)
-        layout.addWidget(self.thumbnail, 0, Qt.AlignHCenter)
+        # Video preview at top - 140x140px (replacing thumbnail)
+        self.preview = AnimationPreview(self.animation_metadata)
+        layout.addWidget(self.preview, 0, Qt.AlignHCenter)
         
         # Animation name (bold) with reduced height
         self.title_label = QLabel(self.animation_metadata.name)
@@ -791,7 +566,7 @@ class AnimationCard(QFrame):
     def set_selected(self, selected: bool):
         """Set selection state"""
         self.is_selected = selected
-        self.thumbnail.set_selected(selected)
+        self.preview.set_selected(selected)
         
         self.setProperty("selected", selected)
         self.style().unpolish(self)
@@ -806,7 +581,7 @@ class AnimationCard(QFrame):
             print(f"🎬 CARD: Starting AGGRESSIVE thumbnail refresh for: {animation_identifier}")
             
             # Use the enhanced refresh method from the thumbnail widget
-            self.thumbnail.refresh_thumbnail(animation_identifier)
+            self.preview.refresh_preview()
             
             # Force update the entire card multiple times
             self.update()
