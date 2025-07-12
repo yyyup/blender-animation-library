@@ -65,10 +65,11 @@ class AnimationThumbnail(QLabel):
         
         # Fallback to animation name-based thumbnail path
         if not thumbnail_loaded:
-            # Try to construct thumbnail path from animation name
+            # Try to construct thumbnail path from animation name using folder structure
             animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+            folder_path = getattr(self.animation_metadata, 'folder_path', 'Root')
             thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            thumbnail_path = Path("animation_library") / "thumbnails" / folder_path / thumbnail_filename
             
             if thumbnail_path.exists():
                 pixmap = self._load_pixmap_no_cache(thumbnail_path)
@@ -96,7 +97,7 @@ class AnimationThumbnail(QLabel):
             print(f"⚠️ No thumbnail found, using placeholder")
     
     def _find_thumbnail_by_name(self) -> Optional[Path]:
-        """Find thumbnail file by searching for files containing the animation name"""
+        """Find thumbnail file by searching for files containing the animation name in folder structure"""
         try:
             thumbnails_dir = Path("animation_library") / "thumbnails"
             if not thumbnails_dir.exists():
@@ -104,8 +105,8 @@ class AnimationThumbnail(QLabel):
             
             animation_name = self.animation_metadata.name
             
-            # Search for PNG files containing the animation name
-            all_thumbnails = list(thumbnails_dir.glob("*.png"))
+            # Search for PNG files containing the animation name in ALL subdirectories
+            all_thumbnails = list(thumbnails_dir.glob("**/*.png"))
             matching_files = []
             
             for thumbnail_file in all_thumbnails:
@@ -207,16 +208,16 @@ class AnimationThumbnail(QLabel):
         self.is_selected = selected
         # Selection will be handled by the parent card
     
-    def refresh_thumbnail(self, animation_name: str):
+    def refresh_thumbnail(self, animation_identifier: str):
         """Refresh thumbnail for the specified animation with MAXIMUM force refresh"""
         # Check if this thumbnail is for the updated animation
         animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
         
         # Match by name or ID
-        if (animation_name == self.animation_metadata.name or 
-            animation_name == animation_id):
+        if (animation_identifier == self.animation_metadata.name or 
+            animation_identifier == animation_id):
             
-            print(f"🔄 THUMBNAIL: Starting MAXIMUM force refresh for: {animation_name}")
+            print(f"🔄 THUMBNAIL: Starting MAXIMUM force refresh for: {animation_identifier}")
             
             # STEP 1: Clear ALL Qt pixmap caches AGGRESSIVELY
             QPixmapCache.clear()
@@ -240,7 +241,7 @@ class AnimationThumbnail(QLabel):
             self.repaint()
             QApplication.processEvents()
             
-            print(f"✅ THUMBNAIL: MAXIMUM force refresh completed for: {animation_name}")
+            print(f"✅ THUMBNAIL: MAXIMUM force refresh completed for: {animation_identifier}")
     
     def load_thumbnail_image_force_refresh(self):
         """Load thumbnail image with MAXIMUM force refresh - searches all possible locations"""
@@ -269,11 +270,12 @@ class AnimationThumbnail(QLabel):
                 except Exception as e:
                     print(f"❌ METHOD 1: Error loading from metadata path: {e}")
         
-        # METHOD 2: Try animation ID-based path
+        # METHOD 2: Try animation ID-based path with folder structure
         if not thumbnail_loaded:
             animation_id = getattr(self.animation_metadata, 'id', self.animation_metadata.name)
+            folder_path = getattr(self.animation_metadata, 'folder_path', 'Root')
             thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            thumbnail_path = Path("animation_library") / "thumbnails" / folder_path / thumbnail_filename
             
             print(f"🔍 METHOD 2: Checking ID-based path: {thumbnail_path}")
             
@@ -795,16 +797,16 @@ class AnimationCard(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
     
-    def refresh_thumbnail(self, animation_name: str):
+    def refresh_thumbnail(self, animation_identifier: str):
         """Refresh thumbnail for the specified animation - AGGRESSIVE VERSION"""
         # Check if this card is for the updated animation
-        if (animation_name == self.animation_metadata.name or 
-            animation_name == getattr(self.animation_metadata, 'id', self.animation_metadata.name)):
+        if (animation_identifier == self.animation_metadata.name or 
+            animation_identifier == getattr(self.animation_metadata, 'id', self.animation_metadata.name)):
             
-            print(f"🎬 CARD: Starting AGGRESSIVE thumbnail refresh for: {animation_name}")
+            print(f"🎬 CARD: Starting AGGRESSIVE thumbnail refresh for: {animation_identifier}")
             
             # Use the enhanced refresh method from the thumbnail widget
-            self.thumbnail.refresh_thumbnail(animation_name)
+            self.thumbnail.refresh_thumbnail(animation_identifier)
             
             # Force update the entire card multiple times
             self.update()
@@ -818,7 +820,7 @@ class AnimationCard(QFrame):
                 QApplication.processEvents()
             ])
             
-            print(f"✅ CARD: AGGRESSIVE thumbnail refresh completed for: {animation_name}")
+            print(f"✅ CARD: AGGRESSIVE thumbnail refresh completed for: {animation_identifier}")
 
 
 class AnimationCardGrid(QWidget):
@@ -1109,24 +1111,24 @@ class AnimationCardGrid(QWidget):
         
         print("✅ Layout refreshed successfully")
     
-    def refresh_thumbnail(self, animation_name: str):
+    def refresh_thumbnail(self, animation_identifier: str):
         """Refresh thumbnail for the specified animation across ALL cards - AGGRESSIVE VERSION"""
         refreshed_count = 0
         
-        print(f"🔄 GRID: Starting AGGRESSIVE thumbnail refresh for all cards matching: {animation_name}")
+        print(f"🔄 GRID: Starting AGGRESSIVE thumbnail refresh for all cards matching: {animation_identifier}")
         
         for card in self.cards:
             if hasattr(card, 'refresh_thumbnail'):
                 # Check if this card is for the updated animation
-                if (animation_name == card.animation_metadata.name or 
-                    animation_name == getattr(card.animation_metadata, 'id', card.animation_metadata.name)):
+                if (animation_identifier == card.animation_metadata.name or 
+                    animation_identifier == getattr(card.animation_metadata, 'id', card.animation_metadata.name)):
                     
                     print(f"🎬 GRID: Refreshing card for: {card.animation_metadata.name}")
-                    card.refresh_thumbnail(animation_name)
+                    card.refresh_thumbnail(animation_identifier)
                     refreshed_count += 1
         
         if refreshed_count > 0:
-            print(f"✅ GRID: Refreshed {refreshed_count} card(s) for animation: {animation_name}")
+            print(f"✅ GRID: Refreshed {refreshed_count} card(s) for animation: {animation_identifier}")
             
             # Force grid-wide update
             self.update()
@@ -1140,4 +1142,4 @@ class AnimationCardGrid(QWidget):
                 QApplication.processEvents()
             ])
         else:
-            print(f"⚠️ GRID: No cards found for animation: {animation_name}")
+            print(f"⚠️ GRID: No cards found for animation: {animation_identifier}")

@@ -19,7 +19,8 @@ class BlendFileAnimationStorage:
     
     def __init__(self, library_path: str = "./animation_library"):
         self.library_path = Path(library_path)
-        self.actions_path = self.library_path / 'actions'
+        self.actions_path = self.library_path / 'actions'  # Legacy support
+        self.animations_path = self.library_path / 'animations'  # NEW: Primary storage
         self.metadata_path = self.library_path / 'metadata'
         self.thumbnails_path = self.library_path / 'thumbnails'
         
@@ -31,9 +32,18 @@ class BlendFileAnimationStorage:
     def _ensure_directories(self):
         """Ensure all required directories exist"""
         self.library_path.mkdir(exist_ok=True)
-        self.actions_path.mkdir(exist_ok=True)
+        self.actions_path.mkdir(exist_ok=True)  # Legacy support
+        self.animations_path.mkdir(exist_ok=True)  # NEW: Primary storage
         self.metadata_path.mkdir(exist_ok=True)
         self.thumbnails_path.mkdir(exist_ok=True)
+        
+        # Create Root folder in animations directory
+        root_animations = self.animations_path / "Root"
+        root_animations.mkdir(exist_ok=True)
+        
+        # Create Root folder in thumbnails directory  
+        root_thumbnails = self.thumbnails_path / "Root"
+        root_thumbnails.mkdir(exist_ok=True)
     
     def extract_animation_to_blend(self, armature_name: str, action_name: str) -> Dict[str, Any]:
         """
@@ -50,9 +60,13 @@ class BlendFileAnimationStorage:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         animation_id = f"{armature_name}_{action_name}_{timestamp}".replace(" ", "_").replace("|", "_")
         
-        # Professional .blend file path
+        # Professional .blend file path - use new folder structure
         blend_filename = f"{animation_id}.blend"
-        blend_path = self.actions_path / blend_filename
+        folder_path = "Root"  # Default folder for new animations
+        blend_path = self.animations_path / folder_path / blend_filename
+        
+        # Ensure the folder exists
+        blend_path.parent.mkdir(parents=True, exist_ok=True)
         
         print(f"💾 Professional extraction to: {blend_path}")
         
@@ -74,6 +88,7 @@ class BlendFileAnimationStorage:
             'armature_name': armature_name,
             'blend_file': blend_filename,
             'blend_action_name': action.name,
+            'folder_path': folder_path,  # Include folder path for application
             'frame_range': frame_range,
             'total_bones_animated': bone_count,
             'total_keyframes': keyframe_count,
@@ -112,17 +127,18 @@ class BlendFileAnimationStorage:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         animation_id = f"{armature_name}_{action_name}_{timestamp}".replace(" ", "_").replace("|", "_")
         
-        # Professional .blend file path
+        # Professional .blend file path - NEW: Use animations/Root/ structure
         blend_filename = f"{animation_id}.blend"
-        blend_path = self.actions_path / blend_filename
+        folder_path = "Root"  # Default folder for new animations
+        blend_path = self.animations_path / folder_path / blend_filename
         
         print(f"💾 Professional extraction with thumbnail to: {blend_path}")
         
         # Save action to dedicated .blend file with perfect fidelity
         self._save_action_to_blend_file(action, blend_path)
         
-        # Capture thumbnail
-        thumbnail_path = self._capture_animation_thumbnail(animation_id)
+        # Capture thumbnail with folder structure
+        thumbnail_path = self._capture_animation_thumbnail(animation_id, folder_path)
         
         # --- Automatic Playblast Capture ---
         preview_dir = self.library_path / "previews"
@@ -238,7 +254,8 @@ class BlendFileAnimationStorage:
         99% performance improvement - 0.5s vs 60s traditional
         """
         blend_filename = animation_metadata['blend_file']
-        blend_path = self.actions_path / blend_filename
+        folder_path = animation_metadata.get('folder_path', 'Root')
+        blend_path = self.animations_path / folder_path / blend_filename
         original_action_name = animation_metadata['blend_action_name']
         
         if not blend_path.exists():
@@ -456,7 +473,8 @@ class BlendFileAnimationStorage:
     
     def get_library_stats(self) -> Dict[str, Any]:
         """Get professional library statistics"""
-        blend_files = list(self.actions_path.glob("*.blend"))
+        # Search for .blend files in the new folder structure
+        blend_files = list(self.animations_path.glob("**/*.blend"))
         total_size = sum(f.stat().st_size for f in blend_files)
         
         return {
@@ -477,20 +495,21 @@ class BlendFileAnimationStorage:
         """Public method for counting bones"""
         return self._count_animated_bones(action)
     
-    def _capture_animation_thumbnail(self, animation_id: str) -> str:
+    def _capture_animation_thumbnail(self, animation_id: str, folder_path: str = "Root") -> str:
         """
         Capture a screenshot of the current 3D viewport for animation thumbnail.
         
         Args:
             animation_id: Unique identifier for the animation
+            folder_path: Folder path for the animation (defaults to "Root")
             
         Returns:
             str: Relative path to the saved thumbnail file, or empty string if failed
         """
         try:
-            # Ensure thumbnails directory exists
-            thumbnails_dir = self.library_path / "thumbnails"
-            thumbnails_dir.mkdir(exist_ok=True)
+            # Ensure thumbnails directory with folder structure exists
+            thumbnails_dir = self.library_path / "thumbnails" / folder_path
+            thumbnails_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate thumbnail filename
             thumbnail_filename = f"{animation_id}.png"
@@ -571,7 +590,7 @@ class BlendFileAnimationStorage:
             
             # Verify thumbnail was created (check for .png file since Blender might add extension)
             if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
-                relative_path = f"thumbnails/{thumbnail_filename}"
+                relative_path = f"thumbnails/{folder_path}/{thumbnail_filename}"
                 print(f"✅ Thumbnail captured: {relative_path}")
                 return relative_path
             else:
@@ -581,7 +600,7 @@ class BlendFileAnimationStorage:
                     actual_file = potential_files[0]
                     # Rename to the expected filename
                     actual_file.rename(thumbnail_path)
-                    relative_path = f"thumbnails/{thumbnail_filename}"
+                    relative_path = f"thumbnails/{folder_path}/{thumbnail_filename}"
                     print(f"✅ Thumbnail captured and renamed: {relative_path}")
                     return relative_path
                 else:

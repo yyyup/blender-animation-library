@@ -143,24 +143,25 @@ class BlenderConnectionHandler(QObject):
             return self.connection.update_thumbnail(animation_id)
         return False
     
-    def send_update_thumbnail(self, animation_name: str) -> bool:
-        """Send update thumbnail command to Blender"""
+    def send_update_thumbnail(self, animation_name: str, folder_path: str = "Root") -> bool:
+        """Send update thumbnail command to Blender with folder path"""
         if not self.connection:
             logger.error("No connection to Blender")
             return False
         
         try:
-            # Create the message as specified in the requirements
+            # Create the message with folder path information
             message_data = {
                 "command": "update_thumbnail", 
-                "animation_name": animation_name
+                "animation_name": animation_name,
+                "folder_path": folder_path
             }
             
-            # Use the Message.command method to create the message
+            # Use the Message.command method to create the message with folder path
             from core.communication import Message
-            message = Message.command("update_thumbnail", animation_name=animation_name)
+            message = Message.command("update_thumbnail", animation_name=animation_name, folder_path=folder_path)
             
-            logger.info(f"Sending thumbnail update request for: {animation_name}")
+            logger.info(f"Sending thumbnail update request for: {animation_name} in folder: {folder_path}")
             return self.connection.send_message(message)
             
         except Exception as e:

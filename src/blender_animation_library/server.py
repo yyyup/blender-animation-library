@@ -274,10 +274,11 @@ class AnimationLibraryServer:
             })
     
     def update_animation_thumbnail(self, data):
-        """Update thumbnail for an existing animation - FIXED VERSION"""
+        """Update thumbnail for an existing animation - FIXED VERSION with folder path"""
         try:
             animation_name = data.get('animation_name')
             animation_id = data.get('animation_id')
+            folder_path = data.get('folder_path', 'Root')  # Default to Root if not provided
             
             if not animation_name and not animation_id:
                 self.send_message({
@@ -289,14 +290,20 @@ class AnimationLibraryServer:
             
             # Use animation_name if provided, otherwise use animation_id
             target_identifier = animation_name if animation_name else animation_id
-            print(f"🔄 Server: Updating thumbnail for animation: {target_identifier}")
+            print(f"🔄 Server: Updating thumbnail for animation: {target_identifier} in folder: {folder_path}")
             
-            # Call the FIXED update thumbnail operator
+            # Call the FIXED update thumbnail operator with folder path
             try:
                 if animation_name:
-                    result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_name)
+                    result = bpy.ops.animationlibrary.update_thumbnail(
+                        animation_name=animation_name, 
+                        folder_path=folder_path
+                    )
                 else:
-                    result = bpy.ops.animationlibrary.update_thumbnail(animation_name=animation_id)
+                    result = bpy.ops.animationlibrary.update_thumbnail(
+                        animation_name=animation_id,
+                        folder_path=folder_path
+                    )
                 
                 # The operator already sends the thumbnail_updated message on success
                 if result == {'FINISHED'}:

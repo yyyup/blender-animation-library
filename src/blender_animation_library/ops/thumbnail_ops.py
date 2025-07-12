@@ -18,9 +18,15 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     animation_name: StringProperty(
-        name="Animation Name",
-        description="Name of the animation to update thumbnail for",
+        name="Animation ID",
+        description="ID of the animation to update thumbnail for",
         default=""
+    )
+    
+    folder_path: StringProperty(
+        name="Folder Path",
+        description="Folder path where the thumbnail is located (e.g., 'Root', 'New Folder')",
+        default="Root"
     )
     
     def execute(self, context):
@@ -33,15 +39,16 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
                 self.report({'ERROR'}, "No animation name provided")
                 return {'CANCELLED'}
             
-            target_name = self.animation_name
-            print(f"🎬 STEP 1: Updating thumbnail for animation: {target_name}")
+            target_id = self.animation_name  # This now contains animation ID
+            target_folder = self.folder_path  # Specific folder to search in
+            print(f"🎬 STEP 1: Updating thumbnail for animation ID: {target_id} in folder: {target_folder}")
             
-            # Find existing thumbnail file by searching the thumbnails directory
-            thumbnail_path = self.find_existing_thumbnail_file(library_path, target_name)
+            # Find existing thumbnail file in the specific folder
+            thumbnail_path = self.find_existing_thumbnail_file(library_path, target_id, target_folder)
             
             if not thumbnail_path:
-                print(f"❌ No existing thumbnail found for: {target_name}")
-                self.report({'ERROR'}, f"No existing thumbnail found for: {target_name}")
+                print(f"❌ No existing thumbnail found for ID: {target_id} in folder: {target_folder}")
+                self.report({'ERROR'}, f"No existing thumbnail found for ID: {target_id} in folder: {target_folder}")
                 return {'CANCELLED'}
             
             print(f"🎬 STEP 2: Found existing thumbnail: {thumbnail_path}")
@@ -68,7 +75,7 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
                 if server.animation_server and server.animation_server.is_running:
                     server.animation_server.send_message({
                         'type': 'thumbnail_updated',
-                        'animation_name': target_name,
+                        'animation_name': target_id,  # Send animation ID
                         'thumbnail': relative_path,
                         'status': 'success'
                     })
@@ -87,8 +94,8 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
             traceback.print_exc()
             return {'CANCELLED'}
     
-    def find_existing_thumbnail_file(self, library_path: str, animation_name: str):
-        """Find existing thumbnail file by searching the thumbnails directory"""
+    def find_existing_thumbnail_file(self, library_path: str, animation_id: str, folder_path: str):
+        """Find existing thumbnail file in the specific folder path"""
         try:
             thumbnails_dir = Path(library_path) / 'thumbnails'
             
@@ -96,29 +103,47 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
                 print(f"⚠️ Thumbnails directory doesn't exist: {thumbnails_dir}")
                 return None
             
-            print(f"🔍 Searching for thumbnails containing '{animation_name}' in: {thumbnails_dir}")
+            # Search in the specific folder path
+            target_folder = thumbnails_dir / folder_path
             
-            # Get all PNG files in thumbnails directory
-            all_thumbnails = list(thumbnails_dir.glob("*.png"))
-            print(f"🔍 Found {len(all_thumbnails)} total PNG files")
+            if not target_folder.exists():
+                print(f"⚠️ Target folder doesn't exist: {target_folder}")
+                return None
             
-            # Find files that contain the animation name
+            print(f"🔍 Searching for thumbnails with ID '{animation_id}' in specific folder: {target_folder}")
+            
+            # Search for exact ID match first, then wildcards within the specific folder
+            patterns = [
+                f"{animation_id}.png",           # Exact ID match
+                f"*{animation_id}*.png",         # ID anywhere in filename
+            ]
+            
             matching_files = []
-            for thumbnail_file in all_thumbnails:
-                if animation_name in thumbnail_file.name:
-                    matching_files.append(thumbnail_file)
-                    print(f"🔍 MATCH: {thumbnail_file.name}")
+            for pattern in patterns:
+                matches = list(target_folder.glob(pattern))
+                for match in matches:
+                    if match not in matching_files:
+                        matching_files.append(match)
+                        relative_path = match.relative_to(thumbnails_dir)
+                        print(f"🔍 MATCH: {relative_path}")
+                
+                # If we found exact matches, don't look for wildcards
+                if pattern.startswith(animation_id) and matches:
+                    break
             
             if matching_files:
                 # If multiple files found, use the most recent one
                 most_recent = max(matching_files, key=lambda f: f.stat().st_mtime)
-                print(f"🔍 Using most recent: {most_recent.name}")
+                # Show relative path from thumbnails directory
+                relative_path = most_recent.relative_to(thumbnails_dir)
+                print(f"🔍 Using most recent: {relative_path}")
                 return most_recent
             else:
-                print(f"🔍 No thumbnail files found containing '{animation_name}'")
+                print(f"🔍 No thumbnail files found for ID '{animation_id}' in folder '{folder_path}'")
                 
-                # Debug: show all files for troubleshooting
-                print(f"🔍 All thumbnail files:")
+                # Debug: show all files in the target folder for troubleshooting
+                print(f"🔍 All thumbnail files in {folder_path}:")
+                all_thumbnails = list(target_folder.glob("*.png"))
                 for thumbnail_file in all_thumbnails:
                     print(f"   - {thumbnail_file.name}")
                 

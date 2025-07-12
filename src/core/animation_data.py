@@ -108,6 +108,11 @@ class BlendFileReference:
             raise ValueError("Blend action name cannot be empty")
         if self.file_size_mb < 0:
             raise ValueError(f"File size cannot be negative: {self.file_size_mb}")
+        
+        # CRITICAL FIX: Initialize file_path to prevent None errors
+        if self.file_path is None:
+            # Set default path to animations/Root/filename.blend
+            self.file_path = Path("animations") / "Root" / self.blend_file
     
     def exists(self) -> bool:
         """Check if .blend file exists"""
@@ -545,9 +550,11 @@ class AnimationMetadata:
             }
     
     def update_blend_file_path(self, library_path: Path) -> None:
-        """Update the full path to .blend file"""
+        """Update the full path to .blend file using new animations/ structure"""
         if self.blend_reference:
-            self.blend_reference.file_path = library_path / 'actions' / self.blend_reference.blend_file
+            # Use animations folder structure: animations/folder_path/filename.blend
+            folder_path = getattr(self, 'folder_path', 'Root')
+            self.blend_reference.file_path = library_path / 'animations' / folder_path / self.blend_reference.blend_file
     
     def increment_usage(self) -> None:
         """Increment usage count safely"""

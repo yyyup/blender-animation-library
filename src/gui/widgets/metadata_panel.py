@@ -27,7 +27,7 @@ class MetadataPanel(QWidget):
     """Professional metadata panel matching Studio Library style with video preview support"""
     
     # Signals for requesting thumbnail updates
-    thumbnail_update_requested = Signal(str)  # animation_name
+    thumbnail_update_requested = Signal(str, str)  # animation_id, folder_path
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -348,10 +348,20 @@ class MetadataPanel(QWidget):
         
         # Fallback to animation name-based thumbnail path
         if not thumbnail_loaded:
-            # Try to construct thumbnail path from animation name
+            # Try to construct thumbnail path from animation name with folder support
             animation_id = getattr(animation, 'id', animation.name)
             thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            folder_path = getattr(animation, 'folder_path', 'Root')
+            thumbnail_path = Path("animation_library") / "thumbnails" / folder_path / thumbnail_filename
+            
+            # First try the folder-specific path
+            if not thumbnail_path.exists():
+                # Fallback: search all subdirectories for the thumbnail
+                import glob
+                thumbnail_search_pattern = str(Path("animation_library") / "thumbnails" / "**" / thumbnail_filename)
+                matches = glob.glob(thumbnail_search_pattern, recursive=True)
+                if matches:
+                    thumbnail_path = Path(matches[0])
             
             if thumbnail_path.exists():
                 pixmap = QPixmap(str(thumbnail_path))
@@ -430,31 +440,34 @@ class MetadataPanel(QWidget):
     
     def request_thumbnail_update(self, animation: AnimationMetadata):
         """Request thumbnail update for the current animation"""
-        # Use animation name as specified in the requirements
-        animation_name = animation.name
-        print(f"📤 DEBUG: Emitting thumbnail_update_requested for: '{animation_name}'")
-
-        self.thumbnail_update_requested.emit(animation_name)
+        # Send both animation ID and folder path for precise location
+        animation_id = getattr(animation, 'id', animation.name)
+        folder_path = getattr(animation, 'folder_path', 'Root')
+        
+        print(f"📤 DEBUG: Requesting thumbnail update for: {animation_id} in folder: {folder_path}")
+        
+        # Emit both animation_id and folder_path
+        self.thumbnail_update_requested.emit(animation_id, folder_path)
     
-    def refresh_thumbnail(self, animation_name: str):
+    def refresh_thumbnail(self, animation_identifier: str):
         """Refresh the large preview image for the specified animation with cache clearing"""
-        if (self.current_animation and 
-            animation_name == self.current_animation.name):
-            
-            print(f"🔄 METADATA: Refreshing large preview for: {animation_name}")
-            
-            # Clear Qt's pixmap cache
-            from PySide6.QtGui import QPixmapCache
-            QPixmapCache.clear()
-            
-            # Find the preview label in the current layout
-            preview_label = self.findChild(QLabel, "large_preview")
-            if preview_label:
-                # Force reload the large preview image
-                self.load_large_preview_force_refresh(preview_label, self.current_animation)
-                print(f"🖼️ METADATA: Refreshed large preview for: {animation_name}")
-            else:
-                print(f"⚠️ METADATA: Preview label not found for: {animation_name}")
+        if self.current_animation:
+            # Check if this matches by ID or name
+            animation_id = getattr(self.current_animation, 'id', self.current_animation.name)
+            if animation_identifier == animation_id or animation_identifier == self.current_animation.name:
+                
+                print(f"🔄 METADATA: Refreshing large preview for ID: {animation_identifier}")
+                
+                # Clear Qt's pixmap cache
+                from PySide6.QtGui import QPixmapCache
+                QPixmapCache.clear()                # Find the preview label in the current layout
+                preview_label = self.findChild(QLabel, "large_preview")
+                if preview_label:
+                    # Force reload the large preview image
+                    self.load_large_preview_force_refresh(preview_label, self.current_animation)
+                    print(f"🖼️ METADATA: Refreshed large preview for ID: {animation_identifier}")
+                else:
+                    print(f"⚠️ METADATA: Preview label not found for ID: {animation_identifier}")
 
     def load_large_preview_force_refresh(self, preview_label: QLabel, animation: AnimationMetadata):
         """Load large preview image with forced refresh (no cache)"""
@@ -497,11 +510,21 @@ class MetadataPanel(QWidget):
                 except Exception as e:
                     print(f"❌ METADATA: Error loading large preview: {e}")
         
-        # Fallback to animation name-based thumbnail path
+        # Fallback to animation name-based thumbnail path with folder support
         if not thumbnail_loaded:
             animation_id = getattr(animation, 'id', animation.name)
             thumbnail_filename = f"{animation_id}.png"
-            thumbnail_path = Path("animation_library") / "thumbnails" / thumbnail_filename
+            folder_path = getattr(animation, 'folder_path', 'Root')
+            thumbnail_path = Path("animation_library") / "thumbnails" / folder_path / thumbnail_filename
+            
+            # First try the folder-specific path
+            if not thumbnail_path.exists():
+                # Fallback: search all subdirectories for the thumbnail
+                import glob
+                thumbnail_search_pattern = str(Path("animation_library") / "thumbnails" / "**" / thumbnail_filename)
+                matches = glob.glob(thumbnail_search_pattern, recursive=True)
+                if matches:
+                    thumbnail_path = Path(matches[0])
             
             if thumbnail_path.exists():
                 try:

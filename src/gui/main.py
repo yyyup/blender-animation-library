@@ -498,10 +498,10 @@ class AnimationLibraryMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error showing animation details: {e}")
     
-    def on_thumbnail_update_requested(self, animation_identifier: str):
+    def on_thumbnail_update_requested(self, animation_identifier: str, folder_path: str):
         """Handle thumbnail update request from metadata panel"""
         try:
-            print(f"📨 DEBUG: Received thumbnail update request for: '{animation_identifier}'")
+            print(f"📨 DEBUG: Received thumbnail update request for: '{animation_identifier}' in folder: '{folder_path}'")
             print(f"🔗 DEBUG: Connection status: {self.blender_connection.is_connected()}")
             
             if not self.blender_connection.is_connected():
@@ -522,8 +522,8 @@ class AnimationLibraryMainWindow(QMainWindow):
             ):
                 animation_name = self.current_animation.name
             
-            # Send the update request to Blender
-            success = self.blender_connection.send_update_thumbnail(animation_name)
+            # Send the update request to Blender with folder path
+            success = self.blender_connection.send_update_thumbnail(animation_name, folder_path)
             print(f"📤 DEBUG: Send result: {success}")
             
             if success:
@@ -966,12 +966,12 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_structure = self.library_manager.get_folder_structure()
         print(f"🔄 Main window: Updating folder tree with structure: {list(folder_structure.keys())}")
         
-        # Force refresh tree from library (important for deletions)
-        folder_tree.force_refresh_from_library(folder_structure)
+        # Update folder structure and refresh tree
+        folder_tree.update_folder_structure(folder_structure)
         
         # Update folder counts
         folder_stats = self.library_manager.get_folder_statistics()
-        folder_tree.update_folder_counts(folder_stats)
+        folder_tree.update_folder_counts_only(folder_stats)
     
     def refresh_library_display(self):
         """Refresh the animation library display with proper cleanup"""

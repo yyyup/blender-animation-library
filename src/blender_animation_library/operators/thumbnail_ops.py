@@ -23,6 +23,12 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
         default=""
     )
     
+    folder_path: StringProperty(
+        name="Folder Path",
+        description="Folder path where the thumbnail is located (e.g., 'Root', 'New Folder')",
+        default="Root"
+    )
+    
     def execute(self, context):
         # Get library path from addon preferences
         addon_prefs = context.preferences.addons[__package__.split('.')[0]].preferences
@@ -37,7 +43,7 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
             print(f"🎬 STEP 1: Updating thumbnail for animation: {target_name}")
             
             # Find existing thumbnail file by searching the thumbnails directory
-            thumbnail_path = self.find_existing_thumbnail_file(library_path, target_name)
+            thumbnail_path = self.find_existing_thumbnail_file(library_path, target_name, self.folder_path)
             
             if not thumbnail_path:
                 print(f"❌ No existing thumbnail found for: {target_name}")
@@ -87,20 +93,21 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
             traceback.print_exc()
             return {'CANCELLED'}
     
-    def find_existing_thumbnail_file(self, library_path: str, animation_name: str):
-        """Find existing thumbnail file by searching the thumbnails directory"""
+    def find_existing_thumbnail_file(self, library_path: str, animation_name: str, folder_path: str):
+        """Find existing thumbnail file by searching the specific folder in thumbnails directory"""
         try:
-            thumbnails_dir = Path(library_path) / 'thumbnails'
+            # Look in the specific folder under thumbnails/
+            thumbnails_dir = Path(library_path) / 'thumbnails' / folder_path
             
             if not thumbnails_dir.exists():
                 print(f"⚠️ Thumbnails directory doesn't exist: {thumbnails_dir}")
                 return None
             
-            print(f"🔍 Searching for thumbnails containing '{animation_name}' in: {thumbnails_dir}")
+            print(f"🔍 Searching for thumbnails containing '{animation_name}' in folder: {thumbnails_dir}")
             
-            # Get all PNG files in thumbnails directory
+            # Get all PNG files in the specific folder
             all_thumbnails = list(thumbnails_dir.glob("*.png"))
-            print(f"🔍 Found {len(all_thumbnails)} total PNG files")
+            print(f"🔍 Found {len(all_thumbnails)} total PNG files in folder")
             
             # Find files that contain the animation name
             matching_files = []
@@ -115,10 +122,10 @@ class ANIMATIONLIBRARY_OT_update_thumbnail(Operator):
                 print(f"🔍 Using most recent: {most_recent.name}")
                 return most_recent
             else:
-                print(f"🔍 No thumbnail files found containing '{animation_name}'")
+                print(f"🔍 No thumbnail files found containing '{animation_name}' in folder {folder_path}")
                 
                 # Debug: show all files for troubleshooting
-                print(f"🔍 All thumbnail files:")
+                print(f"🔍 All thumbnail files in folder:")
                 for thumbnail_file in all_thumbnails:
                     print(f"   - {thumbnail_file.name}")
                 

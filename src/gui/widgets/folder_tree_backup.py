@@ -1,15 +1,30 @@
-# Fixed folder_tree.py - File system-based folder implementation
+# Fixed folder_tree.py - Clean implementation without emoji pollution
 
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
-from typing import Dict, Any, List, Optional
-import logging
+from typing import Dict, Any, Lis    def _build_flat_folder_list(self) -> List[tuple]:
+        """Build simple flat folder list (no hierarchy)"""
+        folders = []
+        
+        # Get all clean folder paths from Custom Folders children
+        if "Custom Folders" in self.folder_structure:
+            custom_folders = self.folder_structure["Custom Folders"].get("children", {})
+            for folder_key, folder_data in custom_folders.items():
+                if isinstance(folder_data, dict) and folder_data.get("type") == "folder":
+                    clean_path = self._extract_clean_path(folder_key)
+                    # Only include single-level folders (no "/" in path)
+                    if clean_path and "/" not in clean_path:
+                        folders.append((clean_path, folder_data))
+                        print(f"📁 FLAT: Processing folder: '{clean_path}'")
+        
+        print(f"🔍 FLAT: Found {len(folders)} flat folders")
+        return foldersrt logging
 
 logger = logging.getLogger(__name__)
 
 class FolderTreeWidget(QWidget):
-    """File system-based folder tree widget"""
+    """Clean folder tree widget without emoji pollution"""
     
     # Signals - Complete set expected by main window
     folder_selected = Signal(str)  # filter_string
@@ -94,6 +109,12 @@ class FolderTreeWidget(QWidget):
             QTreeWidget::item:selected {
                 background-color: #4a90e2;
                 color: white;
+            }
+            QTreeWidget::branch:has-children:closed {
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZD0iTTYgNGw0IDQtNCA0eiIgZmlsbD0iI2VlZWVlZSIvPjwvc3ZnPg==);
+            }
+            QTreeWidget::branch:has-children:open {
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZD0iTTQgNmw0IDQgNC00eiIgZmlsbD0iI2VlZWVlZSIvPjwvc3ZnPg==);
             }
         """)
         
@@ -189,21 +210,21 @@ class FolderTreeWidget(QWidget):
                 first_item = self.tree_widget.topLevelItem(0)
                 first_item.setSelected(True)
                 self.current_selection = "all"
-                
+            
     def _build_flat_folder_list(self) -> List[tuple]:
-        """Build simple flat folder list from file system structure"""
+        """Build simple flat folder list (no hierarchy)"""
         folders = []
         
-        # Get all clean folder paths from Custom Folders children
-        if "Custom Folders" in self.folder_structure:
-            custom_folders = self.folder_structure["Custom Folders"].get("children", {})
-            for folder_key, folder_data in custom_folders.items():
-                if isinstance(folder_data, dict) and folder_data.get("type") == "folder":
-                    clean_path = self._extract_clean_path(folder_key)
-                    # Only include single-level folders (no "/" in path)
-                    if clean_path and "/" not in clean_path:
-                        folders.append((clean_path, folder_data))
-                        print(f"📁 FLAT: Processing folder: '{clean_path}'")
+        # Get all clean folder paths as flat list
+        for folder_key, folder_data in self.folder_structure.items():
+            if folder_key == "🎬 All Animations":
+                continue
+                
+            clean_path = self._extract_clean_path(folder_key)
+            # Only include single-level folders (no "/" in path)
+            if clean_path and "/" not in clean_path:
+                folders.append((clean_path, folder_data))
+                print(f"� FLAT: Processing folder: '{clean_path}'")
         
         print(f"🔍 FLAT: Found {len(folders)} flat folders")
         return folders
@@ -342,7 +363,7 @@ class FolderTreeWidget(QWidget):
             
     def update_folder_structure(self, folder_structure: Dict[str, Any]):
         """Update folder structure from library manager (now file system-based)"""
-        print("📁 TREE: Updating with file system structure")
+        print(f"📁 TREE: Updating with file system structure")
         
         # Check if structure actually changed by comparing folder names
         new_folder_names = set()
@@ -363,17 +384,33 @@ class FolderTreeWidget(QWidget):
         
         # Only refresh if folder structure actually changed
         if new_folder_names != current_folder_names:
-            print("📁 TREE: Structure changed, refreshing tree")
+            print(f"📁 TREE: Structure changed, refreshing tree")
             self.folder_structure = folder_structure
             self.refresh_tree()
         else:
-            print("📁 TREE: Structure unchanged, skipping refresh")
+            print(f"📁 TREE: Structure unchanged, skipping refresh")
             # Still update counts
             self.folder_structure = folder_structure
             
+    def _structure_changed(self, new_structure: Dict[str, Any]) -> bool:
+        """Check if folder structure has actually changed"""
+        if len(new_structure) != len(self.folder_structure):
+            return True
+            
+        for key, data in new_structure.items():
+            if key not in self.folder_structure:
+                return True
+            old_data = self.folder_structure[key]
+            # Check if filter or type changed
+            if (data.get("filter") != old_data.get("filter") or 
+                data.get("type") != old_data.get("type")):
+                return True
+                
+        return False
+        
     def update_folder_counts_only(self, folder_stats: Dict[str, Dict[str, int]]):
         """Update folder counts WITHOUT rebuilding the tree"""
-        print("📊 TREE: Updating counts only, no refresh")
+        print(f"📊 TREE: Updating counts only, no refresh")
         
         # Update root count
         total_animations = sum(stats.get("total", 0) for stats in folder_stats.values())
@@ -419,10 +456,118 @@ class FolderTreeWidget(QWidget):
         # Update all top-level items
         for i in range(self.tree_widget.topLevelItemCount()):
             update_item_counts(self.tree_widget.topLevelItem(i))
+        
+    def update_folder_counts(self, folder_stats: Dict[str, Dict[str, int]]):
+        """Update folder counts with selection preservation"""
+        # Update root count
+        total_animations = sum(stats.get("total", 0) for stats in folder_stats.values())
+        self.folder_structure["🎬 All Animations"]["count"] = total_animations
+        
+        # Update folder counts
+        for folder_key, folder_data in self.folder_structure.items():
+            if folder_key != "🎬 All Animations" and folder_data.get("type") == "folder":
+                clean_path = self._extract_clean_path(folder_key)
+                if clean_path in folder_stats:
+                    folder_data["count"] = folder_stats[clean_path]["total"]
+                    
+        # Use targeted count updates instead of full refresh to preserve selection
+        print("📊 TREE: Updating counts only to preserve selection")
+        self._update_display_counts_only()
+        
+    def select_folder(self, filter_str: str):
+        """Programmatically select a folder"""
+        self.current_selection = filter_str
+        
+        # Find and select the item
+        def find_item_by_filter(item, target_filter):
+            item_data = item.data(0, Qt.UserRole)
+            if item_data and item_data.get("filter") == target_filter:
+                return item
+                
+            for i in range(item.childCount()):
+                found = find_item_by_filter(item.child(i), target_filter)
+                if found:
+                    return found
+            return None
+            
+        # Search all items
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            found_item = find_item_by_filter(item, filter_str)
+            if found_item:
+                self.tree_widget.setCurrentItem(found_item)
+                found_item.setSelected(True)
+                break
+                
+    def update_single_folder_count(self, folder_name: str, count: int):
+        """Update count for a single folder with selection preservation"""
+        # Update the folder structure
+        for folder_key, folder_data in self.folder_structure.items():
+            clean_path = self._extract_clean_path(folder_key)
+            if clean_path == folder_name or folder_key == folder_name:
+                folder_data["count"] = count
+                break
+        
+        # Use targeted count updates instead of full refresh to preserve selection
+        print(f"📊 TREE: Updating single folder count for {folder_name} to preserve selection")
+        self._update_display_counts_only()
+        
+    def increment_folder_count(self, folder_name: str, increment: int = 1):
+        """Increment or decrement folder count"""
+        for folder_key, folder_data in self.folder_structure.items():
+            clean_path = self._extract_clean_path(folder_key)
+            if clean_path == folder_name or folder_key == folder_name:
+                current_count = folder_data.get("count", 0)
+                folder_data["count"] = max(0, current_count + increment)
+                print(f"📊 Updated {folder_name} count: {current_count} → {folder_data['count']}")
+                break
+        
+        # Use counts-only update instead of full refresh to prevent clearing animation grid
+        self._update_display_counts_only()
+        
+    def force_refresh_from_library(self, folder_structure: Dict[str, Any]):
+        """Force refresh tree from library structure"""
+        self.update_folder_structure(folder_structure)
+        
+    # Stub methods for compatibility with main window expectations
+    def on_batch_move_started(self, *args):
+        """Handle batch move operations - stub for compatibility"""
+        pass
+        
+    def on_folder_auto_expanded(self, folder_name: str):
+        """Handle auto-expansion - stub for compatibility"""
+        self.folder_auto_expanded.emit(folder_name)
+        
+    def on_folder_organization_changed(self, rules: dict):
+        """Handle organization changes - stub for compatibility"""
+        self.folder_organization_changed.emit(rules)
+        
+    def tree_dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter event"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:") or data.startswith("folder:"):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+    
+    def tree_dragMoveEvent(self, event: QDragMoveEvent):
+        """Handle drag move event"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:") or data.startswith("folder:"):
+                # Check if the item at current position can accept the drop
+                item = self.tree_widget.itemAt(event.pos())
+                if item:
+                    item_data = item.data(0, Qt.UserRole)
+                    if item_data and item_data.get("type") in ["folder", "root"]:
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
             
     def tree_dropEvent(self, event):
         """Handle drop event for animations onto folders"""
-        print("📥 Drop event on tree widget")
+        print(f"📥 Drop event on tree widget")
         
         if event.mimeData().hasText():
             data = event.mimeData().text()
@@ -461,6 +606,39 @@ class FolderTreeWidget(QWidget):
                 
                 print("🎬 Drop failed - invalid animation target")
                 event.ignore()
+                
+            elif data.startswith("folder:"):
+                # Folder being dropped into another folder or root
+                source_folder = data.replace("folder:", "")
+                
+                # Prevent dropping folder onto itself
+                target_folder = self._get_folder_path_from_item(item)
+                if target_folder == source_folder:
+                    print(f"🚫 Cannot drop folder '{source_folder}' onto itself")
+                    event.ignore()
+                    return
+                
+                # Prevent dropping onto non-folder/non-root items
+                if target_type not in ["folder", "root"]:
+                    print(f"🚫 Cannot drop folder onto item of type: {target_type}")
+                    event.ignore()
+                    return
+                
+                # Prevent dropping root category
+                if source_folder == "All Animations":
+                    print("🚫 Cannot move the root 'All Animations' category")
+                    event.ignore()
+                    return
+                
+                if target_folder:
+                    print(f"📁 Folder reorganization: {source_folder} → {target_folder}")
+                    # Emit proper signal for folder reorganization
+                    self.folder_moved.emit(source_folder, target_folder)
+                    event.acceptProposedAction()
+                    return
+                
+                print("📁 Folder drop failed - invalid target")
+                event.ignore()
         else:
             event.ignore()
     
@@ -483,29 +661,6 @@ class FolderTreeWidget(QWidget):
             return "Root"
         
         return None
-    
-    def tree_dragEnterEvent(self, event: QDragEnterEvent):
-        """Handle drag enter event"""
-        if event.mimeData().hasText():
-            data = event.mimeData().text()
-            if data.startswith("animation_id:"):
-                event.acceptProposedAction()
-                return
-        event.ignore()
-    
-    def tree_dragMoveEvent(self, event: QDragMoveEvent):
-        """Handle drag move event"""
-        if event.mimeData().hasText():
-            data = event.mimeData().text()
-            if data.startswith("animation_id:"):
-                # Check if the item at current position can accept the drop
-                item = self.tree_widget.itemAt(event.pos())
-                if item:
-                    item_data = item.data(0, Qt.UserRole)
-                    if item_data and item_data.get("type") in ["folder", "root"]:
-                        event.acceptProposedAction()
-                        return
-        event.ignore()
     
     def _get_current_selection(self) -> Optional[str]:
         """Get current selection filter string"""
@@ -576,66 +731,4 @@ class FolderTreeWidget(QWidget):
             if find_and_select_item(self.tree_widget.topLevelItem(i)):
                 break
 
-    # Stub methods for compatibility with main window expectations
-    def on_batch_move_started(self, *args):
-        """Handle batch move operations - stub for compatibility"""
-        pass
-        
-    def on_folder_auto_expanded(self, folder_name: str):
-        """Handle auto-expansion - stub for compatibility"""
-        self.folder_auto_expanded.emit(folder_name)
-        
-    def on_folder_organization_changed(self, rules: dict):
-        """Handle organization changes - stub for compatibility"""
-        self.folder_organization_changed.emit(rules)
-        
-    def select_folder(self, filter_str: str):
-        """Programmatically select a folder"""
-        self.current_selection = filter_str
-        
-        # Find and select the item
-        def find_item_by_filter(item, target_filter):
-            item_data = item.data(0, Qt.UserRole)
-            if item_data and item_data.get("filter") == target_filter:
-                return item
-                
-            for i in range(item.childCount()):
-                found = find_item_by_filter(item.child(i), target_filter)
-                if found:
-                    return found
-            return None
-            
-        # Search all items
-        for i in range(self.tree_widget.topLevelItemCount()):
-            item = self.tree_widget.topLevelItem(i)
-            found_item = find_item_by_filter(item, filter_str)
-            if found_item:
-                self.tree_widget.setCurrentItem(found_item)
-                found_item.setSelected(True)
-                break
-                
-    def update_single_folder_count(self, folder_name: str, count: int):
-        """Update count for a single folder with selection preservation"""
-        # Update the folder structure
-        for folder_key, folder_data in self.folder_structure.items():
-            clean_path = self._extract_clean_path(folder_key)
-            if clean_path == folder_name or folder_key == folder_name:
-                folder_data["count"] = count
-                break
-        
-        # Use targeted count updates instead of full refresh to preserve selection
-        print(f"📊 TREE: Updating single folder count for {folder_name} to preserve selection")
-        self._update_display_counts_only()
-        
-    def increment_folder_count(self, folder_name: str, increment: int = 1):
-        """Increment or decrement folder count"""
-        for folder_key, folder_data in self.folder_structure.items():
-            clean_path = self._extract_clean_path(folder_key)
-            if clean_path == folder_name or folder_key == folder_name:
-                current_count = folder_data.get("count", 0)
-                folder_data["count"] = max(0, current_count + increment)
-                print(f"📊 Updated {folder_name} count: {current_count} → {folder_data['count']}")
-                break
-        
-        # Use counts-only update instead of full refresh to prevent clearing animation grid
-        self._update_display_counts_only()
+    # ...existing code...
