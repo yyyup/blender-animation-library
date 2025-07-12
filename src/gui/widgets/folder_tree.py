@@ -198,14 +198,14 @@ class FolderTreeWidget(QWidget):
         self.tree_widget.setItemDelegate(FolderTreeItemDelegate(self.tree_widget))
         
     def apply_styling(self):
-        """Apply professional Studio Library styling to the folder tree widget"""
+        """Apply professional Studio Library styling with compact Maya-style layout"""
         self.setStyleSheet("""
             /* Main folder tree widget styling */
             QTreeWidget {
                 background-color: #2e2e2e;
                 color: #eeeeee;
                 border: none;
-                font-size: 12px;
+                font-size: 13px;
                 font-family: 'Segoe UI', Arial, sans-serif;
                 outline: none;
                 selection-background-color: #3d5afe;
@@ -213,16 +213,16 @@ class FolderTreeWidget(QWidget):
                 show-decoration-selected: 1;
             }
             
-            /* Tree item styling - exact Studio Library specifications */
+            /* Tree item styling - COMPACT Maya-style with bigger icons */
             QTreeWidget::item {
-                height: 36px;
-                padding: 10px 12px;
-                margin: 0px;
+                height: 24px;
+                padding: 4px 8px;
+                margin: 1px 0px;
                 border: none;
-                border-radius: 6px;
+                border-radius: 4px;
                 background-color: #2e2e2e;
                 color: #eeeeee;
-                font-size: 12px;
+                font-size: 13px;
                 font-family: 'Segoe UI', Arial, sans-serif;
             }
             
@@ -232,21 +232,24 @@ class FolderTreeWidget(QWidget):
                 color: white !important;
                 font-weight: normal;
                 border: none;
+                border-radius: 4px;
             }
             
             /* Hover state for non-selected items */
             QTreeWidget::item:hover:!selected {
-                background-color: #3a3a3a !important;
+                background-color: #404040 !important;
                 color: #ffffff;
+                border-radius: 4px;
             }
             
             /* Selected item hover (keep selected styling) */
             QTreeWidget::item:selected:hover {
                 background-color: #3d5afe !important;
                 color: white !important;
+                border-radius: 4px;
             }
             
-            /* Remove all green styling and ensure consistent backgrounds */
+            /* Remove all alternate styling and ensure consistent backgrounds */
             QTreeWidget::item:alternate {
                 background-color: #2e2e2e !important;
             }
@@ -255,41 +258,26 @@ class FolderTreeWidget(QWidget):
                 background-color: #2e2e2e !important;
             }
             
-            /* Maya-style branch styling with proper hierarchy indicators */
+            /* Maya-style branch styling with proper expand/collapse arrows */
             QTreeWidget::branch {
                 background: transparent;
                 width: 20px;
                 border: none;
             }
             
-            /* Expansion arrows for folders with children */
+            /* Use default Qt tree indicators - much more reliable */
             QTreeWidget::branch:has-children:!has-siblings:closed,
             QTreeWidget::branch:closed:has-children:has-siblings {
                 border-image: none;
-                image: none;
+                image: url(data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22%23cccccc%22%20d%3D%22M6%204l4%204-4%204V4z%22/%3E%3C/svg%3E);
                 background: transparent;
             }
             
             QTreeWidget::branch:open:has-children:!has-siblings,
             QTreeWidget::branch:open:has-children:has-siblings {
                 border-image: none;
-                image: none;
+                image: url(data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22%23cccccc%22%20d%3D%22M4%206l4%204%204-4H4z%22/%3E%3C/svg%3E);
                 background: transparent;
-            }
-            
-            /* Use unicode arrows for expansion/collapse indicators */
-            QTreeWidget::branch:has-children:!has-siblings:closed,
-            QTreeWidget::branch:closed:has-children:has-siblings {
-                background: transparent;
-                margin: 0px;
-                padding: 0px;
-            }
-            
-            QTreeWidget::branch:open:has-children:!has-siblings,
-            QTreeWidget::branch:open:has-children:has-siblings {
-                background: transparent;
-                margin: 0px;
-                padding: 0px;
             }
             
             /* Indentation for hierarchy levels */
@@ -299,22 +287,22 @@ class FolderTreeWidget(QWidget):
                 width: 20px;
             }
             
-            /* Toolbar button styling */
+            /* Compact toolbar button styling */
             QPushButton {
-                background-color: #666;
+                background-color: #444;
                 color: #eeeeee;
-                border: 1px solid #777;
+                border: 1px solid #666;
                 border-radius: 4px;
-                padding: 8px 16px;
+                padding: 6px 12px;
                 font-size: 11px;
                 font-weight: bold;
                 font-family: 'Segoe UI', Arial, sans-serif;
             }
             
             QPushButton:hover {
-                background-color: #777;
-                border-color: #4a90e2;
+                background-color: #4a90e2;
                 color: #ffffff;
+                border-color: #4a90e2;
             }
             
             QPushButton:pressed {
@@ -398,7 +386,7 @@ class FolderTreeWidget(QWidget):
         # Always add "All Animations" root first
         root_data = {"type": "root", "filter": "all", "count": 0}
         root_item = self.create_tree_item("🎬 All Animations", root_data)
-        root_item.setExpanded(True)
+        root_item.setExpanded(True)  # Keep root expanded
         self.tree_widget.addTopLevelItem(root_item)
         
         # Build hierarchical folder structure
@@ -448,8 +436,8 @@ class FolderTreeWidget(QWidget):
             folder_data = folder_info["data"].copy()
             folder_data["type"] = "folder"
             
-            # Create folder item with proper display name and emoji
-            display_name = f"📁 {folder_name}"
+            # Create folder item with bigger folder icon
+            display_name = f"🗂️ {folder_name}"  # Use bigger folder icon
             
             # Add count if available
             if folder_data.get("count", 0) > 0:
@@ -466,10 +454,10 @@ class FolderTreeWidget(QWidget):
             else:
                 self.tree_widget.addTopLevelItem(folder_item)
             
-            # Recursively add children (subfolders)
+            # Recursively add children but start COLLAPSED for Maya-style behavior
             if folder_info["children"]:
-                folder_item.setExpanded(True)  # Auto-expand folders with children
                 self._add_folders_to_tree(folder_info["children"], folder_item)
+                folder_item.setExpanded(False)  # Start collapsed - user clicks to expand
         
         print(f"🌳 TREE: Added {len(folder_hierarchy)} folders to hierarchy level")
 
