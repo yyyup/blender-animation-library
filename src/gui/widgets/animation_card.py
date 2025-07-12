@@ -137,8 +137,24 @@ class AnimationPreview(QVideoWidget):
         super().leaveEvent(event)
     
     def refresh_preview(self):
-        """Refresh preview - reload the video file"""
-        print(f"🔄 Refreshing preview for: {self.animation_metadata.name}")
+        """Refresh preview - reload the video file for temporary file strategy"""
+        print(f"🔄 Card refreshing preview: {self.animation_metadata.name}")
+        
+        # Brief release then reload for temporary file strategy
+        self.release_video_file()
+        QTimer.singleShot(100, self.load_preview_video)
+        print(f"✅ Card preview refresh scheduled for: {self.animation_metadata.name}")
+    
+    def release_video_file(self):
+        """Release video file so Blender can delete/recreate it"""
+        if self.media_player:
+            self.media_player.stop()
+            self.media_player.setSource(QUrl())
+            print(f"🔓 Card released video: {self.animation_metadata.name}")
+    
+    def reload_video_file(self):
+        """Reload video after Blender creates new file"""
+        print(f"🔄 Card reloading video: {self.animation_metadata.name}")
         self.load_preview_video()
     
     def set_selected(self, selected: bool):
@@ -899,23 +915,29 @@ class AnimationCardGrid(QWidget):
         print("✅ Layout refreshed successfully")
     
     def refresh_thumbnail(self, animation_identifier: str):
-        """Refresh thumbnail for the specified animation across ALL cards - AGGRESSIVE VERSION"""
+        """Refresh preview for specified animation across ALL cards"""
         refreshed_count = 0
         
-        print(f"🔄 GRID: Starting AGGRESSIVE thumbnail refresh for all cards matching: {animation_identifier}")
+        print(f"🔄 GRID: Starting preview refresh for all cards matching: {animation_identifier}")
         
         for card in self.cards:
-            if hasattr(card, 'refresh_thumbnail'):
-                # Check if this card is for the updated animation
-                if (animation_identifier == card.animation_metadata.name or 
-                    animation_identifier == getattr(card.animation_metadata, 'id', card.animation_metadata.name)):
-                    
-                    print(f"🎬 GRID: Refreshing card for: {card.animation_metadata.name}")
+            # Check if this card matches the animation
+            if (animation_identifier == card.animation_metadata.name or 
+                animation_identifier == getattr(card.animation_metadata, 'id', card.animation_metadata.name)):
+                
+                print(f"🎬 GRID: Refreshing card preview for: {card.animation_metadata.name}")
+                
+                # Call the correct refresh method on the video preview widget
+                if hasattr(card, 'preview') and hasattr(card.preview, 'refresh_preview'):
+                    card.preview.refresh_preview()  # ✅ Call video refresh method
+                    refreshed_count += 1
+                elif hasattr(card, 'refresh_thumbnail'):
+                    # Fallback to card's own refresh method
                     card.refresh_thumbnail(animation_identifier)
                     refreshed_count += 1
         
         if refreshed_count > 0:
-            print(f"✅ GRID: Refreshed {refreshed_count} card(s) for animation: {animation_identifier}")
+            print(f"✅ GRID: Refreshed {refreshed_count} card(s)")
             
             # Force grid-wide update
             self.update()
@@ -929,4 +951,14 @@ class AnimationCardGrid(QWidget):
                 QApplication.processEvents()
             ])
         else:
-            print(f"⚠️ GRID: No cards found for animation: {animation_identifier}")
+            print(f"⚠️ GRID: No matching cards found for: {animation_identifier}")
+    
+    def release_all_video_files(self):
+        """Release video files from all animation cards"""
+        print(f"🔓 GRID: Releasing video files from {len(self.cards)} animation cards")
+        
+        for card in self.cards:
+            if hasattr(card, 'preview') and hasattr(card.preview, 'release_video_file'):
+                card.preview.release_video_file()
+        
+        print(f"✅ GRID: All video files released")
