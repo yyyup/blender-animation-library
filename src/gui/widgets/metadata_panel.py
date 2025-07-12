@@ -114,22 +114,31 @@ class MetadataPanel(QWidget):
     
     def show_animation_details(self, animation: AnimationMetadata):
         """Show detailed metadata for selected animation with video/image preview"""
+        print(f"📋 DEBUG: show_animation_details called for: {animation.name}")
+        print(f"📋 DEBUG: Animation ID: {getattr(animation, 'id', 'NO_ID')}")
+        print(f"📋 DEBUG: Animation type: {type(animation)}")
+        
         self.current_animation = animation
         self.clear_content()
+        print("📋 DEBUG: Content cleared, setting up preview")
         
         # Large preview section at the top (video or image)
         preview_group = self.create_info_group("Preview")
         preview_layout = QVBoxLayout(preview_group)
+        print("📋 DEBUG: Preview group created")
         
         # Check if animation has preview video
         has_video_preview = self.check_for_video_preview(animation)
+        print(f"📋 DEBUG: Has video preview: {has_video_preview}")
         
         if has_video_preview:
             # Create video player
             self.create_video_player(preview_layout, animation)
+            print("📋 DEBUG: Video player created")
         else:
             # Create video preview
             self.setup_video_preview(preview_layout, animation)
+            print("📋 DEBUG: Video preview setup completed")
         
         # Buttons section
         buttons_layout = QHBoxLayout()

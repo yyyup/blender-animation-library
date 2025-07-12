@@ -149,6 +149,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.batch_move_started.connect(self.on_batch_move_started)
         folder_tree.folder_organization_changed.connect(self.on_folder_organization_changed)
         animation_grid.animation_selected.connect(self.on_animation_selected)
+        print("🔗 DEBUG: Connected animation_selected signal")
         
         # NEW: Connect drag state signals to prevent refreshes during drag operations
         animation_grid.drag_in_progress.connect(self.on_drag_state_changed)
@@ -494,21 +495,35 @@ class AnimationLibraryMainWindow(QMainWindow):
     
     def on_animation_selected(self, animation_data: dict):
         """Handle animation selection"""
+        print(f"📨 DEBUG: on_animation_selected called with: {animation_data.get('name', 'Unknown')}")
+        
         try:
             animation_id = animation_data.get('id')
+            print(f"📨 DEBUG: Animation ID: {animation_id}")
+            
             metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            print(f"📨 DEBUG: Metadata panel: {metadata_panel}")
             
             if animation_id:
                 animation = self.library_manager.get_animation(animation_id)
+                print(f"📨 DEBUG: Found animation: {animation}")
+                
                 if animation:
                     self.current_animation = animation
                     metadata_panel.show_animation_details(animation)
+                    print(f"🎬 DEBUG: Called show_animation_details")
                     print(f"🎬 Animation selected: {animation.name}")
                 else:
+                    print("❌ DEBUG: Animation not found in library")
                     metadata_panel.show_no_selection()
             else:
+                print("❌ DEBUG: No animation ID provided")
                 metadata_panel.show_no_selection()
+                
         except Exception as e:
+            print(f"❌ DEBUG: Error in on_animation_selected: {e}")
+            import traceback
+            traceback.print_exc()
             logger.error(f"Error showing animation details: {e}")
     
     def on_preview_update_requested(self, animation_identifier: str, folder_path: str):

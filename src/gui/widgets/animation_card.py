@@ -443,8 +443,13 @@ class AnimationCard(QFrame):
     def mousePressEvent(self, event):
         """Handle mouse press for selection and drag start"""
         if event.button() == Qt.LeftButton:
+            print(f"🖱️ DEBUG: Animation card clicked: {self.animation_metadata.name}")
+            print(f"🖱️ DEBUG: Animation ID: {getattr(self.animation_metadata, 'id', 'NO_ID')}")
+            print(f"🖱️ DEBUG: Animation data: {self.animation_data}")
+            
             self.set_selected(True)
             self.drag_start_position = event.pos()
+            print("🖱️ DEBUG: Card selection set, drag position recorded")
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
@@ -692,16 +697,23 @@ class AnimationCardGrid(QWidget):
     
     def select_card(self, card):
         """Select an animation card"""
+        print(f"🔄 DEBUG: select_card called for: {card.animation_metadata.name}")
+        print(f"🔄 DEBUG: Card animation data: {card.animation_data}")
+        
         # Deselect previous card
         if self.selected_card:
+            print(f"🔄 DEBUG: Deselecting previous card: {self.selected_card.animation_metadata.name}")
             self.selected_card.set_selected(False)
         
         # Select new card
         self.selected_card = card
         card.set_selected(True)
+        print(f"🔄 DEBUG: Selected new card: {card.animation_metadata.name}")
         
         # Emit selection signal
+        print("🔄 DEBUG: About to emit animation_selected signal")
         self.animation_selected.emit(card.animation_data)
+        print("🔄 DEBUG: animation_selected signal emitted")
     
     def remove_card(self, animation_card):
         """Remove animation card from grid with proper cleanup"""
