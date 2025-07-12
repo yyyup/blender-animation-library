@@ -1050,7 +1050,7 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_stats = self.library_manager.get_folder_statistics()
         
         # Use the efficient count update method
-        folder_tree.update_folder_counts_efficient(folder_stats)
+        folder_tree.update_folder_counts_only(folder_stats)
         print(f"📊 Updated folder counts: {folder_stats}")
     
     def on_thumbnail_updated(self, animation_name: str):
@@ -1142,6 +1142,34 @@ class AnimationLibraryMainWindow(QMainWindow):
         
         # Show success message
         self.status_bar.showMessage("Folder organization updated", 3000)
+    
+    def on_folder_moved(self, source_folder: str, target_folder: str):
+        """Handle folder reorganization from tree widget"""
+        try:
+            print(f"📁 Main window: Moving folder '{source_folder}' to '{target_folder}'")
+            
+            # Move folder through library manager
+            success = self.library_manager.move_folder(source_folder, target_folder)
+            
+            if success:
+                print(f"✅ Main window: Folder move successful")
+                
+                # Update folder tree display (reload structure from library)
+                self.update_folder_tree()
+                
+                # Refresh animation display to reflect new organization
+                self.refresh_library_display()
+                
+                # Show success message
+                self.status_bar.showMessage(f"Moved folder '{source_folder}' to '{target_folder}'", 3000)
+                print(f"✅ Main window: Folder moved successfully: '{source_folder}' → '{target_folder}'")
+            else:
+                print(f"❌ Main window: Folder move failed")
+                QMessageBox.warning(self, "Folder Move Failed", f"Failed to move folder '{source_folder}' to '{target_folder}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to move folder {source_folder} to {target_folder}: {e}")
+            QMessageBox.warning(self, "Folder Move Error", f"Error moving folder:\n{str(e)}")
 
 def main():
     """Main application entry point"""

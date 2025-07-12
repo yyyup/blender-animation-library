@@ -49,10 +49,19 @@ class FolderTreeWidget(QWidget):
         self.tree_widget.setDefaultDropAction(Qt.MoveAction)
         self.tree_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
         
+        # Enable drag and drop for receiving animations
+        self.tree_widget.setAcceptDrops(True)
+        self.tree_widget.setDropIndicatorShown(True)
+        
         # Connect signals
         self.tree_widget.itemClicked.connect(self.on_item_clicked)
         self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # Custom drop handling
+        self.tree_widget.dropEvent = self.tree_dropEvent
+        self.tree_widget.dragEnterEvent = self.tree_dragEnterEvent
+        self.tree_widget.dragMoveEvent = self.tree_dragMoveEvent
         
         # Add toolbar (now tree_widget exists)
         toolbar = self.create_toolbar()
@@ -554,3 +563,129 @@ class FolderTreeWidget(QWidget):
     def on_folder_organization_changed(self, rules: dict):
         """Handle organization changes - stub for compatibility"""
         self.folder_organization_changed.emit(rules)
+        
+    def tree_dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter event"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:") or data.startswith("folder:"):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+    
+    def tree_dragMoveEvent(self, event: QDragMoveEvent):
+        """Handle drag move event"""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if data.startswith("animation_id:") or data.startswith("folder:"):
+                # Check if the item at current position can accept the drop
+                item = self.tree_widget.itemAt(event.pos())
+                if item:
+                    item_data = item.data(0, Qt.UserRole)
+                    if item_data and item_data.get("type") in ["folder", "root"]:
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+            
+    def tree_dropEvent(self, event):
+        """Handle drop event for animations onto folders"""
+        print(f"📥 Drop event on tree widget")
+        
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            print(f"📄 Drop data: {data}")
+            
+            # Get the item at drop position
+            position = event.pos()
+            item = self.tree_widget.itemAt(position)
+            
+            if not item:
+                print("🚫 Drop failed - no target item")
+                event.ignore()
+                return
+            
+            item_data = item.data(0, Qt.UserRole)
+            if not item_data:
+                print("🚫 Drop failed - no item data")
+                event.ignore()
+                return
+            
+            target_type = item_data.get("type", "")
+            
+            if data.startswith("animation_id:"):
+                # Animation being dropped into folder
+                animation_id = data.replace("animation_id:", "")
+                
+                # Get target folder
+                target_folder = self._get_folder_path_from_item(item)
+                if target_folder:
+                    print(f"🎬 Drop successful! Animation {animation_id} → {target_folder}")
+                    
+                    # Emit the animation moved signal
+                    self.animation_moved.emit(animation_id, target_folder)
+                    event.acceptProposedAction()
+                    return
+                
+                print("🎬 Drop failed - invalid animation target")
+                event.ignore()
+                
+            elif data.startswith("folder:"):
+                # Folder being dropped into another folder or root
+                source_folder = data.replace("folder:", "")
+                
+                # Prevent dropping folder onto itself
+                target_folder = self._get_folder_path_from_item(item)
+                if target_folder == source_folder:
+                    print(f"🚫 Cannot drop folder '{source_folder}' onto itself")
+                    event.ignore()
+                    return
+                
+                # Prevent dropping onto non-folder/non-root items
+                if target_type not in ["folder", "root"]:
+                    print(f"🚫 Cannot drop folder onto item of type: {target_type}")
+                    event.ignore()
+                    return
+                
+                # Prevent dropping root category
+                if source_folder == "All Animations":
+                    print("🚫 Cannot move the root 'All Animations' category")
+                    event.ignore()
+                    return
+                
+                if target_folder:
+                    print(f"📁 Folder reorganization: {source_folder} → {target_folder}")
+                    # Emit proper signal for folder reorganization
+                    self.folder_moved.emit(source_folder, target_folder)
+                    event.acceptProposedAction()
+                    return
+                
+                print("📁 Folder drop failed - invalid target")
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def _get_folder_path_from_item(self, item) -> Optional[str]:
+        """Get folder path from tree item"""
+        item_data = item.data(0, Qt.UserRole)
+        if not item_data:
+            return None
+        
+        item_type = item_data.get("type", "")
+        
+        if item_type == "folder":
+            # This is a custom folder - extract the clean folder name
+            folder_display_name = item.text(0).split(" (")[0]  # Remove count
+            folder_name = folder_display_name.replace("📁 ", "")  # Remove emoji
+            print(f"🔍 Extracted folder name: '{folder_name}' from display: '{folder_display_name}'")
+            return folder_name
+        elif item_type == "root":
+            # Dropped on root - use "Root" as default folder
+            return "Root"
+        
+        return None
+        
+    def startDrag(self, supportedActions: Qt.DropActions = Qt.CopyAction | Qt.MoveAction):
+        """Override to provide custom drag support for animations"""
+        print(f"🖱️ Drag started")
+        # Custom drag logic here (if needed)
+        super().startDrag(supportedActions)
