@@ -36,6 +36,8 @@ class MetadataPanel(QWidget):
         self.media_player = None
         self.video_widget = None
         self.audio_output = None
+        self.play_button = None
+        self.position_label = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -91,10 +93,18 @@ class MetadataPanel(QWidget):
     
     def clear_content(self):
         """Clear all content from the metadata panel"""
+        print("🧹 DEBUG: Clearing metadata panel content")
+        
+        # Clean up video resources first to prevent widget deletion errors
+        self.cleanup_video_resources()
+        
+        # Clear all widgets from layout
         for i in reversed(range(self.content_layout.count())):
             child = self.content_layout.itemAt(i).widget()
             if child:
                 child.setParent(None)
+                
+        print("🧹 DEBUG: Metadata panel content cleared")
     
     def show_no_selection(self):
         """Show message when no animation is selected"""
@@ -597,9 +607,14 @@ class MetadataPanel(QWidget):
             return False
     
     def create_video_player(self, layout, animation):
-        """Create video player widget for animation preview"""
+        """Create video player widget for animation preview - ALWAYS CREATE FRESH WIDGETS"""
+        print("🎬 DEBUG: Creating video player - using fresh widgets")
         try:
-            # Create video widget
+            # Always clean up existing resources first
+            self.cleanup_video_resources()
+            
+            # Create NEW video widget
+            print("🎬 DEBUG: Creating new video widget for player")
             self.video_widget = QVideoWidget()
             self.video_widget.setFixedSize(300, 300)
             self.video_widget.setStyleSheet("""
@@ -610,7 +625,8 @@ class MetadataPanel(QWidget):
                 }
             """)
             
-            # Create media player
+            # Create NEW media player
+            print("🎬 DEBUG: Creating new media player")
             self.media_player = QMediaPlayer()
             self.audio_output = QAudioOutput()
             self.media_player.setAudioOutput(self.audio_output)
@@ -639,9 +655,10 @@ class MetadataPanel(QWidget):
                 return
             
             layout.addWidget(self.video_widget, 0, Qt.AlignHCenter)
+            print("🎬 DEBUG: Video player creation completed with fresh widgets")
             
         except Exception as e:
-            print(f"Error creating video player: {e}")
+            print(f"❌ DEBUG: Error creating video player: {e}")
             # Fallback to image preview
             self.create_image_preview(layout, animation)
     
@@ -705,23 +722,51 @@ class MetadataPanel(QWidget):
         except Exception as e:
             print(f"Error handling media status change: {e}")
     
-    def cleanup_media_player(self):
-        """Clean up media player resources"""
+    def cleanup_video_resources(self):
+        """Clean up video widget and media player resources completely"""
+        print("🧹 DEBUG: Starting video resource cleanup")
+        
         try:
+            # Stop and cleanup media player first
             if self.media_player:
+                print("🧹 DEBUG: Stopping media player")
                 self.media_player.stop()
                 self.media_player.setSource(QUrl())
+                self.media_player.setVideoOutput(None)  # Disconnect from video widget
                 self.media_player = None
+                print("🧹 DEBUG: Media player cleaned up")
             
-            if self.audio_output:
+            # Cleanup audio output
+            if hasattr(self, 'audio_output') and self.audio_output:
                 self.audio_output = None
+                print("🧹 DEBUG: Audio output cleaned up")
             
+            # Cleanup video widget
             if self.video_widget:
+                print("🧹 DEBUG: Cleaning up video widget")
                 self.video_widget.setParent(None)
+                self.video_widget.deleteLater()
                 self.video_widget = None
+                print("🧹 DEBUG: Video widget cleaned up")
+                
+            # Cleanup control widgets if they exist
+            if hasattr(self, 'play_button') and self.play_button:
+                self.play_button.setParent(None)
+                self.play_button = None
+                
+            if hasattr(self, 'position_label') and self.position_label:
+                self.position_label.setParent(None)
+                self.position_label = None
+                
+            print("🧹 DEBUG: Video resource cleanup completed")
                 
         except Exception as e:
-            print(f"Error cleaning up media player: {e}")
+            print(f"❌ DEBUG: Error during video resource cleanup: {e}")
+            # Force reset to None even if cleanup failed
+            self.media_player = None
+            self.video_widget = None
+            if hasattr(self, 'audio_output'):
+                self.audio_output = None
 
     def create_info_group(self, title: str) -> QGroupBox:
         """Create a styled info group"""
@@ -748,26 +793,35 @@ class MetadataPanel(QWidget):
         return group
 
     def setup_video_preview(self, layout, animation):
-        """Setup video preview with 512x512 video player and controls"""
-        # Initialize media player if not already done
-        if not self.media_player:
-            self.media_player = QMediaPlayer()
-            self.audio_output = QAudioOutput()
-            self.audio_output.setVolume(0.5)  # 50% volume for preview
-            self.media_player.setAudioOutput(self.audio_output)
+        """Setup video preview with 512x512 video player and controls - ALWAYS CREATE FRESH WIDGETS"""
+        print("🎬 DEBUG: Setting up video preview - creating fresh widgets")
         
-        # Video widget
-        if not self.video_widget:
-            self.video_widget = QVideoWidget()
-            self.video_widget.setFixedSize(512, 512)
-            self.media_player.setVideoOutput(self.video_widget)
+        # Always clean up any existing video resources first
+        self.cleanup_video_resources()
         
+        # Always create NEW media player instance
+        print("🎬 DEBUG: Creating new media player")
+        self.media_player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.audio_output.setVolume(0.5)  # 50% volume for preview
+        self.media_player.setAudioOutput(self.audio_output)
+        
+        # Always create NEW video widget instance
+        print("🎬 DEBUG: Creating new video widget")
+        self.video_widget = QVideoWidget()
+        self.video_widget.setFixedSize(512, 512)
+        self.media_player.setVideoOutput(self.video_widget)
+        
+        # Add the fresh widget to layout
+        print("🎬 DEBUG: Adding fresh video widget to layout")
         layout.addWidget(self.video_widget)
         
         # Load video preview
+        print("🎬 DEBUG: Loading video preview")
         self.load_video_preview(animation)
         
-        # Controls
+        # Controls - always create fresh controls
+        print("🎬 DEBUG: Creating fresh video controls")
         controls_layout = QHBoxLayout()
         
         # Play/Pause button
@@ -777,6 +831,19 @@ class MetadataPanel(QWidget):
         
         # Position label
         self.position_label = QLabel("00:00 / 00:00")
+        
+        # Add controls to layout
+        controls_layout.addWidget(self.play_button)
+        controls_layout.addWidget(self.position_label)
+        
+        layout.addLayout(controls_layout)
+        
+        # Connect media player signals
+        self.media_player.playbackStateChanged.connect(self.on_playback_state_changed)
+        self.media_player.positionChanged.connect(self.on_position_changed)
+        self.media_player.durationChanged.connect(self.on_duration_changed)
+        
+        print("🎬 DEBUG: Video preview setup completed with fresh widgets")
         
         controls_layout.addWidget(self.play_button)
         controls_layout.addWidget(self.position_label)
