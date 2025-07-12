@@ -380,6 +380,8 @@ class AnimationCard(QFrame):
     delete_requested = Signal(dict)
     preview_requested = Signal(dict)
     move_to_folder_requested = Signal(dict, str)
+    drag_started = Signal()  # NEW: Signal when drag begins
+    drag_finished = Signal(bool)  # NEW: Signal when drag ends (success/failure)
     
     def __init__(self, animation_data: Dict[str, Any], parent=None):
         super().__init__(parent)
@@ -388,6 +390,7 @@ class AnimationCard(QFrame):
         self.is_hovered = False
         self.is_selected = False
         self.drag_start_position = None
+        self.is_dragging = False  # NEW: Track drag state
         
         # Initialize button attributes
         self.apply_btn = None
@@ -686,7 +689,15 @@ class AnimationCard(QFrame):
         self.start_drag()
     
     def start_drag(self):
-        """Start drag operation for this animation card"""
+        """Start drag operation for this animation card with proper state management"""
+        if self.is_dragging:
+            return  # Prevent multiple simultaneous drags
+            
+        self.is_dragging = True
+        self.drag_started.emit()  # Notify that drag is starting
+        
+        print(f"🎬 DRAG: Starting drag for animation: {self.animation_metadata.name}")
+        
         drag = QDrag(self)
         mime_data = QMimeData()
         
@@ -709,8 +720,19 @@ class AnimationCard(QFrame):
         drag.setPixmap(scaled_pixmap)
         drag.setHotSpot(scaled_pixmap.rect().center())
         
-        # Execute drag
-        _ = drag.exec_(Qt.MoveAction)  # Result not used
+        # Execute drag and handle result
+        drop_action = drag.exec_(Qt.MoveAction)
+        
+        # Handle drag completion
+        success = (drop_action == Qt.MoveAction)
+        print(f"🎬 DRAG: Drag completed - Success: {success}, Action: {drop_action}")
+        
+        self.is_dragging = False
+        self.drag_finished.emit(success)
+        
+        if not success:
+            print(f"⚠️ DRAG: Failed to drop animation {self.animation_metadata.name}")
+            # Optionally show user feedback for failed drops
     
     def contextMenuEvent(self, event):
         """Show context menu with folder move options"""
@@ -803,11 +825,13 @@ class AnimationCardGrid(QWidget):
     """Grid container for animation cards with responsive layout and FIXED refresh"""
     
     animation_selected = Signal(dict)  # Emits selected animation data
+    drag_in_progress = Signal(bool)    # NEW: Signal for drag state changes
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.cards = []
         self.selected_card = None
+        self.active_drags = 0  # NEW: Track number of active drags
         self.setup_ui()
     
     def setup_ui(self):
@@ -857,7 +881,7 @@ class AnimationCardGrid(QWidget):
         """)
     
     def add_card(self, animation_card):
-        """Add animation card to grid"""
+        """Add animation card to grid and connect drag signals"""
         # Connect selection signal properly with closure
         def create_mouse_handler(original_handler, card_reference):
             def new_mouse_press(event):
@@ -868,8 +892,26 @@ class AnimationCardGrid(QWidget):
         
         animation_card.mousePressEvent = create_mouse_handler(animation_card.mousePressEvent, animation_card)
         
+        # NEW: Connect drag state signals
+        animation_card.drag_started.connect(self.on_drag_started)
+        animation_card.drag_finished.connect(self.on_drag_finished)
+        
         self.cards.append(animation_card)
         self.refresh_layout()
+    
+    def on_drag_started(self):
+        """Handle when a card starts being dragged"""
+        self.active_drags += 1
+        if self.active_drags == 1:  # First drag started
+            self.drag_in_progress.emit(True)
+            print(f"🎯 Drag started - active drags: {self.active_drags}")
+    
+    def on_drag_finished(self):
+        """Handle when a card finishes being dragged"""
+        self.active_drags = max(0, self.active_drags - 1)  # Prevent negative
+        if self.active_drags == 0:  # All drags finished
+            self.drag_in_progress.emit(False)
+            print(f"✅ All drags finished - active drags: {self.active_drags}")
     
     def select_card(self, card):
         """Select an animation card"""

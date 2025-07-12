@@ -156,8 +156,14 @@ class FolderTreeWidget(QWidget):
         return item
         
     def refresh_tree(self):
-        """Refresh the tree widget display"""
+        """Refresh the tree widget display with selection preservation"""
         print(f"🔄 TREE: Refreshing tree with {len(self.folder_structure)} folders")
+        
+        # Store current selection and expansion state before clearing
+        preserved_selection = self._get_current_selection()
+        expanded_items = self._get_expanded_items()
+        print(f"💾 TREE: Preserving selection: {preserved_selection}")
+        
         self.tree_widget.clear()
         
         # Add root item
@@ -175,12 +181,20 @@ class FolderTreeWidget(QWidget):
                 self._add_folders_to_tree(hierarchy)
             else:
                 print("⚠️ TREE: No hierarchy built - check folder structure")
-            
-        # Select root by default
-        if self.tree_widget.topLevelItemCount() > 0:
-            first_item = self.tree_widget.topLevelItem(0)
-            first_item.setSelected(True)
-            self.current_selection = "all"
+        
+        # Restore expansion state
+        self._restore_expanded_items(expanded_items)
+        
+        # Restore selection state
+        if preserved_selection:
+            self._restore_selection(preserved_selection)
+            print(f"✅ TREE: Restored selection: {preserved_selection}")
+        else:
+            # Select root by default only if no previous selection
+            if self.tree_widget.topLevelItemCount() > 0:
+                first_item = self.tree_widget.topLevelItem(0)
+                first_item.setSelected(True)
+                self.current_selection = "all"
             
     def _build_folder_hierarchy(self) -> Dict[str, Any]:
         """Build hierarchical folder structure from flat folder list"""
@@ -296,16 +310,34 @@ class FolderTreeWidget(QWidget):
                 print(f"🌲 ADD_TO_TREE: '{folder_name}' has no children")
                 
     def on_item_clicked(self, item: QTreeWidgetItem, column: int):
-        """Handle item click"""
+        """Handle item click with improved selection persistence"""
         if not item:
             return
+        
+        # Ensure the item stays selected
+        item.setSelected(True)
+        self.tree_widget.setCurrentItem(item)
             
         item_data = item.data(0, Qt.UserRole)
         if item_data:
             filter_str = item_data.get("filter", "all")
             self.current_selection = filter_str
+            
+            # Clear selection of other items to ensure single selection
+            for i in range(self.tree_widget.topLevelItemCount()):
+                top_item = self.tree_widget.topLevelItem(i)
+                self._clear_other_selections(top_item, item)
+            
             self.folder_selected.emit(filter_str)
-            print(f"📁 Selected folder with filter: {filter_str}")
+            print(f"📁 Selected folder with filter: {filter_str} (selection preserved)")
+    
+    def _clear_other_selections(self, tree_item: QTreeWidgetItem, selected_item: QTreeWidgetItem):
+        """Clear selection from all items except the selected one"""
+        if tree_item != selected_item:
+            tree_item.setSelected(False)
+        
+        for i in range(tree_item.childCount()):
+            self._clear_other_selections(tree_item.child(i), selected_item)
             
     def show_context_menu(self, position: QPoint):
         """Show context menu for folder operations"""
@@ -488,7 +520,7 @@ class FolderTreeWidget(QWidget):
             update_item_counts(self.tree_widget.topLevelItem(i))
         
     def update_folder_counts(self, folder_stats: Dict[str, Dict[str, int]]):
-        """Update folder counts"""
+        """Update folder counts with selection preservation"""
         # Update root count
         total_animations = sum(stats.get("total", 0) for stats in folder_stats.values())
         self.folder_structure["🎬 All Animations"]["count"] = total_animations
@@ -500,7 +532,9 @@ class FolderTreeWidget(QWidget):
                 if clean_path in folder_stats:
                     folder_data["count"] = folder_stats[clean_path]["total"]
                     
-        self.refresh_tree()
+        # Use targeted count updates instead of full refresh to preserve selection
+        print("📊 TREE: Updating counts only to preserve selection")
+        self._update_display_counts_only()
         
     def select_folder(self, filter_str: str):
         """Programmatically select a folder"""
@@ -528,14 +562,17 @@ class FolderTreeWidget(QWidget):
                 break
                 
     def update_single_folder_count(self, folder_name: str, count: int):
-        """Update count for a single folder"""
-        # Basic implementation - update the folder structure and refresh
+        """Update count for a single folder with selection preservation"""
+        # Update the folder structure
         for folder_key, folder_data in self.folder_structure.items():
             clean_path = self._extract_clean_path(folder_key)
             if clean_path == folder_name or folder_key == folder_name:
                 folder_data["count"] = count
                 break
-        self.refresh_tree()
+        
+        # Use targeted count updates instead of full refresh to preserve selection
+        print(f"📊 TREE: Updating single folder count for {folder_name} to preserve selection")
+        self._update_display_counts_only()
         
     def increment_folder_count(self, folder_name: str, increment: int = 1):
         """Increment or decrement folder count"""
@@ -544,8 +581,11 @@ class FolderTreeWidget(QWidget):
             if clean_path == folder_name or folder_key == folder_name:
                 current_count = folder_data.get("count", 0)
                 folder_data["count"] = max(0, current_count + increment)
+                print(f"📊 Updated {folder_name} count: {current_count} → {folder_data['count']}")
                 break
-        self.refresh_tree()
+        
+        # Use counts-only update instead of full refresh to prevent clearing animation grid
+        self._update_display_counts_only()
         
     def force_refresh_from_library(self, folder_structure: Dict[str, Any]):
         """Force refresh tree from library structure"""
@@ -683,9 +723,74 @@ class FolderTreeWidget(QWidget):
             return "Root"
         
         return None
+    
+    def _get_current_selection(self) -> Optional[str]:
+        """Get current selection filter string"""
+        current_item = self.tree_widget.currentItem()
+        if current_item:
+            item_data = current_item.data(0, Qt.UserRole)
+            if item_data:
+                return item_data.get("filter", "all")
+        return self.current_selection if hasattr(self, 'current_selection') else None
+    
+    def _get_expanded_items(self) -> List[str]:
+        """Get list of expanded folder filters"""
+        expanded = []
         
-    def startDrag(self, supportedActions: Qt.DropActions = Qt.CopyAction | Qt.MoveAction):
-        """Override to provide custom drag support for animations"""
-        print(f"🖱️ Drag started")
-        # Custom drag logic here (if needed)
-        super().startDrag(supportedActions)
+        def collect_expanded(item):
+            if item.isExpanded():
+                item_data = item.data(0, Qt.UserRole)
+                if item_data:
+                    filter_str = item_data.get("filter", "")
+                    if filter_str:
+                        expanded.append(filter_str)
+            
+            for i in range(item.childCount()):
+                collect_expanded(item.child(i))
+        
+        for i in range(self.tree_widget.topLevelItemCount()):
+            collect_expanded(self.tree_widget.topLevelItem(i))
+        
+        return expanded
+    
+    def _restore_expanded_items(self, expanded_filters: List[str]):
+        """Restore expansion state for items"""
+        if not expanded_filters:
+            return
+            
+        def restore_item_expansion(item):
+            item_data = item.data(0, Qt.UserRole)
+            if item_data:
+                filter_str = item_data.get("filter", "")
+                if filter_str in expanded_filters:
+                    item.setExpanded(True)
+            
+            for i in range(item.childCount()):
+                restore_item_expansion(item.child(i))
+        
+        for i in range(self.tree_widget.topLevelItemCount()):
+            restore_item_expansion(self.tree_widget.topLevelItem(i))
+    
+    def _restore_selection(self, target_filter: str):
+        """Restore selection to item with matching filter"""
+        if not target_filter:
+            return
+            
+        def find_and_select_item(item):
+            item_data = item.data(0, Qt.UserRole)
+            if item_data and item_data.get("filter") == target_filter:
+                self.tree_widget.setCurrentItem(item)
+                item.setSelected(True)
+                self.current_selection = target_filter
+                return True
+            
+            for i in range(item.childCount()):
+                if find_and_select_item(item.child(i)):
+                    return True
+            return False
+        
+        for i in range(self.tree_widget.topLevelItemCount()):
+            if find_and_select_item(self.tree_widget.topLevelItem(i)):
+                break
+
+    # ...existing code...

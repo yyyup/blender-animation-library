@@ -50,6 +50,9 @@ class AnimationLibraryMainWindow(QMainWindow):
         self.current_filter = "all"
         self.current_animation = None
         
+        # NEW: Drag state tracking to prevent refreshes during drag operations
+        self.drag_in_progress = False
+        
         self.setup_ui()
         self.setup_connections()
         self.load_library()
@@ -146,6 +149,9 @@ class AnimationLibraryMainWindow(QMainWindow):
         folder_tree.batch_move_started.connect(self.on_batch_move_started)
         folder_tree.folder_organization_changed.connect(self.on_folder_organization_changed)
         animation_grid.animation_selected.connect(self.on_animation_selected)
+        
+        # NEW: Connect drag state signals to prevent refreshes during drag operations
+        animation_grid.drag_in_progress.connect(self.on_drag_state_changed)
         
         # Metadata panel signals
         metadata_panel.thumbnail_update_requested.connect(self.on_thumbnail_update_requested)
@@ -437,25 +443,41 @@ class AnimationLibraryMainWindow(QMainWindow):
     def on_folder_selected(self, filter_str: str):
         """Handle folder selection from tree"""
         print(f"📁 Folder filter applied: {filter_str}")
-        self.current_filter = filter_str
-        #self.refresh_library_display()
+        print(f"📁 Previous filter was: {getattr(self, 'current_filter', 'none')}")
         
-        # Update status
+        # Set the new filter
+        self.current_filter = filter_str
+        
+        # CRITICAL FIX: Uncomment refresh to apply folder filtering
+        print(f"🔄 Refreshing library display to apply folder filter: {filter_str}")
+        self.refresh_library_display()
+        
+        # Update status with detailed debug info
         if filter_str == "all":
+            print(f"📁 DEBUG: Showing all animations")
             self.status_bar.showMessage("Showing all animations", 2000)
         elif filter_str.startswith("rig_type:"):
             rig_type = filter_str.split(":", 1)[1]
+            print(f"📁 DEBUG: Filtering by rig type: {rig_type}")
             self.status_bar.showMessage(f"Filtered by rig type: {rig_type}", 2000)
         elif filter_str.startswith("storage:"):
             storage_type = filter_str.split(":", 1)[1]
             storage_name = "Instant .blend files" if storage_type == "blend_file" else "Legacy JSON files"
+            print(f"📁 DEBUG: Filtering by storage: {storage_name}")
             self.status_bar.showMessage(f"Filtered by storage: {storage_name}", 2000)
         elif filter_str.startswith("category:"):
             category = filter_str.split(":", 1)[1]
+            print(f"📁 DEBUG: Filtering by category: {category}")
             self.status_bar.showMessage(f"Filtered by category: {category.title()}", 2000)
         elif filter_str.startswith("folder:"):
             folder_name = filter_str.split(":", 1)[1]
+            print(f"📁 DEBUG: Filtering by folder: '{folder_name}'")
+            print(f"📁 DEBUG: Current filter now set to: {self.current_filter}")
             self.status_bar.showMessage(f"Showing folder: {folder_name}", 2000)
+        else:
+            print(f"📁 DEBUG: Unknown filter type: {filter_str}")
+            
+        print(f"📁 DEBUG: Folder selection complete, filter applied: {self.current_filter}")
     
     def on_animation_selected(self, animation_data: dict):
         """Handle animation selection"""
@@ -595,7 +617,17 @@ class AnimationLibraryMainWindow(QMainWindow):
         """Edit animation metadata (placeholder)"""
         QMessageBox.information(self, "Edit", f"Edit dialog for '{animation_data['name']}' would be shown here")
     
-    def on_animation_moved(self, animation_id: str, target_folder: str):
+    def on_drag_state_changed(self, is_dragging):
+        """Handle drag state changes to prevent UI refreshes during drag operations"""
+        self.drag_in_progress = is_dragging
+        if is_dragging:
+            print("🎯 Drag started - preventing library refreshes")
+        else:
+            print("✅ Drag finished - refreshing library display")
+            # Refresh the display now that dragging is complete
+            self.refresh_library_display()
+
+    def on_animation_moved(self, animation_id, target_folder):
         """Handle animation moved to folder via drag & drop"""
         try:
             print(f"🎬 BEFORE MOVE - Animation {animation_id} to folder '{target_folder}'")
@@ -632,11 +664,41 @@ class AnimationLibraryMainWindow(QMainWindow):
                 
                 print(f"🎬 AFTER MOVE - Animation {animation_name} now in folder: '{new_folder}'")
                 
-                # Refresh displays (but folder counts should already be updated)
-                self.refresh_library_display()
+                # CRITICAL FIX: Replace refresh_library_display() with targeted updates to prevent cards from disappearing
                 
-                # Do a final count verification and update if needed
+                # 1. Update folder tree counts only (already done above with optimistic updates)
                 self.update_folder_tree_counts_only()
+                
+                # 2. Check if the moved animation should still be visible in current filter
+                current_filter = getattr(self, 'current_filter', 'all')
+                should_remain_visible = True
+                
+                if current_filter == "all":
+                    # Animation should remain visible in "all" view
+                    should_remain_visible = True
+                elif current_filter.startswith("folder:"):
+                    # Animation should only remain visible if it's still in the filtered folder
+                    filter_folder = current_filter.split(":", 1)[1]
+                    should_remain_visible = (target_folder == filter_folder)
+                else:
+                    # For other filters (rig_type, storage, etc.), animation should still be visible
+                    should_remain_visible = True
+                
+                # 3. Remove card from grid only if it should no longer be visible in current filter
+                if not should_remain_visible:
+                    animation_grid = self.layout_manager.get_widget('animation_grid')
+                    if animation_grid and hasattr(animation_grid, 'safe_delete_animation_card'):
+                        card_removed = animation_grid.safe_delete_animation_card(animation_id)
+                        if card_removed:
+                            print(f"🎬 MOVE: Removed card from current view (moved to different folder)")
+                        else:
+                            print(f"🎬 MOVE: Card not found in current view or already removed")
+                    else:
+                        print(f"🎬 MOVE: Animation grid doesn't support safe card removal")
+                else:
+                    print(f"🎬 MOVE: Card remains visible in current view")
+                
+                # 4. NO full grid refresh - keeping all other cards visible
                 
                 # Show success message
                 self.status_bar.showMessage(f"Moved '{animation_name}' to folder '{target_folder}'", 3000)
@@ -726,20 +788,96 @@ class AnimationLibraryMainWindow(QMainWindow):
             QMessageBox.warning(self, "Folder Deletion Error", f"Error deleting folder:\n{str(e)}")
     
     def move_animation_to_folder(self, animation_data: dict, target_folder: str):
-        """Move animation to folder via context menu"""
+        """Move animation to folder via context menu with targeted updates"""
         animation_id = animation_data.get('id')
-        if animation_id:
+        if not animation_id:
+            return
+            
+        try:
+            print(f"🎬 CONTEXT MOVE: Moving animation {animation_id} to folder '{target_folder}'")
+            
+            # Get current animation to check source folder
+            animation = self.library_manager.get_animation(animation_id)
+            source_folder = "Root"
+            if animation:
+                source_folder = getattr(animation, 'folder_path', 'Root')
+                print(f"🎬 CONTEXT MOVE: Current folder: '{source_folder}' → Target folder: '{target_folder}'")
+            
             # Check if we need to create the folder first
             folder_stats = self.library_manager.get_folder_statistics()
-            if target_folder not in folder_stats:
+            if target_folder not in folder_stats and target_folder != "Root":
                 # Create the folder
                 success = self.library_manager.create_folder(target_folder)
                 if not success:
                     QMessageBox.warning(self, "Folder Creation Failed", f"Failed to create folder '{target_folder}'")
                     return
             
-            # Move the animation
-            self.on_animation_moved(animation_id, target_folder)
+            # Move the animation in library
+            success = self.library_manager.move_animation_to_folder(animation_id, target_folder)
+            
+            if success:
+                # Get animation name for status message
+                animation_name = animation.name if animation else "Animation"
+                
+                print(f"🎬 CONTEXT MOVE: Animation {animation_name} moved to folder: '{target_folder}'")
+                
+                # CRITICAL FIX: Use targeted updates instead of refresh_library_display()
+                
+                # 1. Update folder counts in folder tree
+                folder_tree = self.layout_manager.get_widget('folder_tree')
+                if folder_tree and source_folder != target_folder:
+                    # Decrement source folder count
+                    if source_folder != "Root":
+                        folder_tree.increment_folder_count(source_folder, -1)
+                    # Increment target folder count
+                    folder_tree.increment_folder_count(target_folder, 1)
+                    
+                    # Update root count based on whether we're moving to/from root
+                    if source_folder == "Root" and target_folder != "Root":
+                        folder_tree.increment_folder_count("Root", -1)
+                    elif source_folder != "Root" and target_folder == "Root":
+                        folder_tree.increment_folder_count("Root", 1)
+                
+                # 2. Update folder tree counts
+                self.update_folder_tree_counts_only()
+                
+                # 3. Check if animation should still be visible in current filter
+                current_filter = getattr(self, 'current_filter', 'all')
+                should_remain_visible = True
+                
+                if current_filter == "all":
+                    should_remain_visible = True
+                elif current_filter.startswith("folder:"):
+                    filter_folder = current_filter.split(":", 1)[1]
+                    should_remain_visible = (target_folder == filter_folder)
+                else:
+                    # For other filters (rig_type, storage, etc.), animation should still be visible
+                    should_remain_visible = True
+                
+                # 4. Remove card only if it should no longer be visible in current filter
+                if not should_remain_visible:
+                    animation_grid = self.layout_manager.get_widget('animation_grid')
+                    if animation_grid and hasattr(animation_grid, 'safe_delete_animation_card'):
+                        card_removed = animation_grid.safe_delete_animation_card(animation_id)
+                        if card_removed:
+                            print(f"🎬 CONTEXT MOVE: Removed card from current view (moved to different folder)")
+                    else:
+                        print(f"🎬 CONTEXT MOVE: Animation grid doesn't support safe card removal")
+                else:
+                    print(f"🎬 CONTEXT MOVE: Card remains visible in current view")
+                
+                # 5. Show success message
+                if hasattr(self, 'status_bar'):
+                    self.status_bar.showMessage(f"Moved '{animation_name}' to folder '{target_folder}'", 3000)
+                print(f"✅ CONTEXT MOVE: Successfully moved {animation_name} to {target_folder}")
+                
+            else:
+                print(f"❌ CONTEXT MOVE: Failed to move animation to folder '{target_folder}'")
+                QMessageBox.warning(self, "Move Failed", f"Failed to move animation to folder '{target_folder}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to move animation {animation_id}: {e}")
+            QMessageBox.warning(self, "Move Error", f"Error moving animation:\n{str(e)}")
     
     def delete_animation(self, animation_data: dict):
         """Delete animation from library with proper UI cleanup"""
@@ -837,6 +975,11 @@ class AnimationLibraryMainWindow(QMainWindow):
     
     def refresh_library_display(self):
         """Refresh the animation library display with proper cleanup"""
+        # CRITICAL: Don't refresh during drag operations to prevent cards from disappearing
+        if self.drag_in_progress:
+            print("⏸️ SKIPPING refresh - drag operation in progress")
+            return
+            
         print("🔄 Starting library display refresh...")
         
         animations = self.get_filtered_animations()
@@ -934,20 +1077,23 @@ class AnimationLibraryMainWindow(QMainWindow):
                                 if any(category in tag.lower() for tag in anim.tags)]
             elif self.current_filter.startswith("folder:"):
                 folder_name = self.current_filter.split(":", 1)[1]
-                print(f"🔍 Filtering by folder: '{folder_name}'")
+                print(f"🔍 FILTERING: Applying folder filter for: '{folder_name}'")
+                print(f"🔍 FILTERING: Total animations before filter: {len(all_animations)}")
                 
                 # Filter animations by exact folder path match
                 filtered_animations = []
                 for anim in all_animations:
                     anim_folder = getattr(anim, 'folder_path', 'Root')
-                    folder_path = getattr(anim, 'folder_path', 'Root')
                     matches_folder = anim_folder == folder_name
-                    print(f"   - Checking {anim.name}: '{anim_folder}' == '{folder_name}' ? {matches_folder}")
-                    if anim_folder == folder_name:
+                    print(f"   - Checking {anim.name}: folder='{anim_folder}' matches '{folder_name}' ? {matches_folder}")
+                    if matches_folder:
                         filtered_animations.append(anim)
+                        print(f"     ✅ INCLUDED: {anim.name}")
+                    else:
+                        print(f"     ❌ EXCLUDED: {anim.name}")
                 
                 all_animations = filtered_animations
-                print(f"🔍 Found {len(all_animations)} animations in folder '{folder_name}'")
+                print(f"🔍 FILTERING: Found {len(all_animations)} animations in folder '{folder_name}'")
         
         # Apply search filter
         search_text = toolbar.search_box.text().lower()
@@ -1171,36 +1317,21 @@ class AnimationLibraryMainWindow(QMainWindow):
             logger.error(f"Failed to move folder {source_folder} to {target_folder}: {e}")
             QMessageBox.warning(self, "Folder Move Error", f"Error moving folder:\n{str(e)}")
 
+
 def main():
-    """Main application entry point"""
-    print("🎬 Starting Animation Library - Modular Studio Layout with Folders...")
+    """Main entry point for the application"""
+    import sys
+    from PySide6.QtWidgets import QApplication
     
+    # Create the application
     app = QApplication(sys.argv)
     
-    # Set application properties
-    app.setApplicationName("Animation Library Professional")
-    app.setApplicationVersion("2.1")
-    app.setOrganizationName("Animation Studio")
-    
-    # Create and show main window
+    # Create and show the main window
     window = AnimationLibraryMainWindow()
     window.show()
     
-    # Center window on screen
-    screen = app.primaryScreen().geometry()
-    window_geo = window.geometry()
-    x = (screen.width() - window_geo.width()) // 2
-    y = (screen.height() - window_geo.height()) // 2
-    window.move(x, y)
-    
-    print("✅ Modular Animation Library with folder structure started successfully!")
-    
-    # Run application
-    try:
-        sys.exit(app.exec())
-    except KeyboardInterrupt:
-        logger.info("Application interrupted by user")
-        app.quit()
+    # Start the event loop
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
