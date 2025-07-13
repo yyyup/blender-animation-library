@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class BlenderConnectionHandler(QObject):
-    """Handles Blender connection with Qt signals"""
+    """Handles Blender connection with Qt signals - FIXED VERSION"""
     
     # Signals for UI updates
     connected = Signal()
@@ -37,6 +37,7 @@ class BlenderConnectionHandler(QObject):
     animation_applied = Signal(dict)
     error_received = Signal(str)
     thumbnail_updated = Signal(str)  # Emits animation_name when thumbnail is updated
+    file_release_requested = Signal(str, bool)  # Emits animation_name when thumbnail is updated
     
     def __init__(self, host='127.0.0.1', port=8080):
         super().__init__()
@@ -46,18 +47,19 @@ class BlenderConnectionHandler(QObject):
         self.connection_thread: Optional[QThread] = None
         
     def connect_to_blender(self) -> bool:
-        """Connect to Blender in a separate thread"""
+        """Connect to Blender in a separate thread - FIXED VERSION"""
         try:
             # Create connection
             self.connection = BlenderConnection(self.config)
             
-            # Register message handlers
+            # Register message handlers (FIXED: Add missing release_file_request handler)
             self.connection.register_handler("connected", self._on_connected)
             self.connection.register_handler("scene_info", self._on_scene_info)
             self.connection.register_handler("selection_update", self._on_selection_update)
             self.connection.register_handler("animation_extracted", self._on_animation_extracted)
             self.connection.register_handler("animation_applied", self._on_animation_applied)
             self.connection.register_handler("thumbnail_updated", self._on_thumbnail_updated)
+            self.connection.register_handler("release_file_request", self._on_release_file_request)  # ADDED
             self.connection.register_handler("error", self._on_error)
             self.connection.register_error_handler(self._on_connection_error)
             
@@ -76,6 +78,24 @@ class BlenderConnectionHandler(QObject):
             logger.error(f"Connection failed: {e}")
             self.connection_error.emit(str(e))
             return False
+
+    def _on_release_file_request(self, message: Message):
+        """Handle file release request from Blender - NEW HANDLER"""
+        try:
+            animation_id = message.data.get("animation_id")
+            force_release = message.data.get("force_release", False)
+            
+            logger.info(f"🔓 Received file release request for: {animation_id} (force: {force_release})")
+            print(f"🔓 GUI: Processing file release request for: {animation_id}")
+            
+            # Emit signal to release files across all GUI components
+            self.file_release_requested.emit(animation_id, force_release)
+            
+            print(f"📤 GUI: Emitted file_release_requested signal for: {animation_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error handling file release request: {e}")
+            print(f"❌ GUI: Error handling file release request: {e}")
     
     def disconnect_from_blender(self):
         """Disconnect from Blender"""

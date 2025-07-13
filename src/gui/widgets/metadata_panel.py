@@ -481,32 +481,47 @@ class MetadataPanel(QWidget):
             print("❌ No current animation selected")
     
     def send_update_command(self):
-        """Send the actual update command after file release"""
+        """Send the actual update command after file release - FIXED VERSION"""
         
-        # Get the CORRECT animation ID - try multiple fields
+        # Get the CORRECT full animation ID - PRIORITY ORDER FIXED
         animation_id = None
         
-        # Method 1: Try the 'id' field first (most reliable)
-        if hasattr(self.current_animation, 'id') and self.current_animation.id:
-            animation_id = self.current_animation.id
-            print(f"📋 METADATA: Using animation.id: {animation_id}")
+        # Method 1: Try to get the full blend file name without extension (HIGHEST PRIORITY)
+        if hasattr(self.current_animation, 'blend_reference') and self.current_animation.blend_reference:
+            blend_file = self.current_animation.blend_reference.blend_file
+            # Extract full ID from blend filename
+            # e.g., "Antoun_clothed_Rigify_63_20250713_103348.blend" → "Antoun_clothed_Rigify_63_20250713_103348"
+            animation_id = blend_file.replace('.blend', '')
+            print(f"📋 METADATA: Using blend file name: {animation_id}")
         
-        # Method 2: Fall back to name if id is not available
-        elif hasattr(self.current_animation, 'name') and self.current_animation.name:
-            animation_id = self.current_animation.name
-            print(f"📋 METADATA: Using animation.name: {animation_id}")
+        # Method 2: Try blend_file field directly
+        elif hasattr(self.current_animation, 'blend_file') and self.current_animation.blend_file:
+            blend_file = self.current_animation.blend_file
+            animation_id = blend_file.replace('.blend', '')
+            print(f"📋 METADATA: Using blend_file field: {animation_id}")
         
-        # Method 3: Check if there's a specific animation_id field
+        # Method 3: Try the animation_id field
         elif hasattr(self.current_animation, 'animation_id') and self.current_animation.animation_id:
             animation_id = self.current_animation.animation_id
-            print(f"📋 METADATA: Using animation.animation_id: {animation_id}")
+            print(f"📋 METADATA: Using animation_id: {animation_id}")
+        
+        # Method 4: Try the 'id' field
+        elif hasattr(self.current_animation, 'id') and self.current_animation.id:
+            animation_id = self.current_animation.id
+            print(f"📋 METADATA: Using id: {animation_id}")
+        
+        # Method 5: Fall back to name (last resort - this causes the issue)
+        elif hasattr(self.current_animation, 'name') and self.current_animation.name:
+            animation_id = self.current_animation.name
+            print(f"📋 METADATA: Using name (last resort): {animation_id}")
+            print(f"⚠️ WARNING: Using short name may cause naming issues!")
         
         if not animation_id:
             print(f"❌ METADATA: Could not determine animation ID")
             return
         
         # Debug: Print what we're sending
-        print(f"📤 METADATA: Sending update command for animation ID: '{animation_id}'")
+        print(f"📤 METADATA: Sending update command for FULL animation ID: '{animation_id}'")
         
         folder_path = getattr(self.current_animation, 'folder_path', 'Root')
         print(f"📤 METADATA: Folder path: '{folder_path}'")

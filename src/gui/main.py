@@ -112,17 +112,18 @@ class AnimationLibraryMainWindow(QMainWindow):
         """)
     
     def setup_connections(self):
-        """Setup signal connections"""
+        """Setup signal connections - CORRECTED VERSION"""
         # Get widgets from layout manager
         toolbar = self.layout_manager.get_widget('toolbar')
         folder_tree = self.layout_manager.get_widget('folder_tree')
         animation_grid = self.layout_manager.get_widget('animation_grid')
         metadata_panel = self.layout_manager.get_widget('metadata_panel')
         
-        # Blender connection signals
+        # Blender connection signals (ADDED: file release signal)
         self.blender_connection.connected.connect(self.on_blender_connected)
         self.blender_connection.disconnected.connect(self.on_blender_disconnected)
         self.blender_connection.connection_error.connect(self.on_connection_error)
+        self.blender_connection.file_release_requested.connect(self.on_file_release_requested)  # NEW
         
         # Data signals
         self.blender_connection.scene_info_received.connect(self.on_scene_info_received)
@@ -138,24 +139,51 @@ class AnimationLibraryMainWindow(QMainWindow):
         toolbar.tag_filter_changed.connect(self.on_tag_filter_changed)
         toolbar.rig_filter_changed.connect(self.on_rig_filter_changed)
         
+        # Folder tree signals (FIXED: Only connect to signals that actually exist)
         folder_tree.folder_selected.connect(self.on_folder_selected)
-        folder_tree.animation_moved.connect(self.on_animation_moved)  # NEW: Handle drag & drop
-        folder_tree.folder_created.connect(self.on_folder_created)  # NEW: Handle folder creation
-        folder_tree.folder_deleted.connect(self.on_folder_deleted)  # NEW: Handle folder deletion
+        folder_tree.folder_created.connect(self.on_folder_created)
+        folder_tree.folder_deleted.connect(self.on_folder_deleted)
+        # REMOVED: folder_tree.folder_renamed.connect(self.on_folder_renamed)  # This signal doesn't exist!
         
-        # Maya-style enhancement signal connections
-        folder_tree.multi_folder_selected.connect(self.on_multi_folder_selected)
-        folder_tree.folder_auto_expanded.connect(self.on_folder_auto_expanded)
-        folder_tree.batch_move_started.connect(self.on_batch_move_started)
-        folder_tree.folder_organization_changed.connect(self.on_folder_organization_changed)
+        # Animation grid signals (FIXED: Only connect to signals that actually exist)
         animation_grid.animation_selected.connect(self.on_animation_selected)
-        print("🔗 DEBUG: Connected animation_selected signal")
-        
-        # NEW: Connect drag state signals to prevent refreshes during drag operations
+        # REMOVED: animation_grid.context_menu_requested.connect(self.on_animation_context_menu)  # This signal doesn't exist!
         animation_grid.drag_in_progress.connect(self.on_drag_state_changed)
         
         # Metadata panel signals
         metadata_panel.preview_update_requested.connect(self.on_preview_update_requested)
+        
+        logger.info("✅ All signals connected (file release handler added)")
+
+    # ADD this new method anywhere in your AnimationLibraryMainWindow class
+    def on_file_release_requested(self, animation_id: str, force_release: bool):
+        """Handle file release request from Blender - NEW HANDLER"""
+        try:
+            logger.info(f"🔓 MAIN: Received file release request for: {animation_id} (force: {force_release})")
+            print(f"🔓 MAIN: Processing file release request for: {animation_id}")
+            
+            # Release video files in metadata panel
+            metadata_panel = self.layout_manager.get_widget('metadata_panel')
+            if metadata_panel:
+                print(f"🔓 MAIN: Releasing video in metadata panel")
+                metadata_panel.release_video_file()
+            
+            # Release video files in all animation cards
+            animation_grid = self.layout_manager.get_widget('animation_grid')
+            if animation_grid:
+                print(f"🔓 MAIN: Releasing videos in all animation cards")
+                animation_grid.release_all_video_files()
+            
+            # Force garbage collection to ensure file handles are released
+            import gc
+            gc.collect()
+            
+            print(f"✅ MAIN: File release completed for: {animation_id}")
+            logger.info(f"✅ File release completed for: {animation_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error releasing files: {e}")
+            print(f"❌ MAIN: Error releasing files: {e}")
     
     def get_application_style(self) -> str:
         """Get the Studio Library application stylesheet"""
@@ -537,7 +565,7 @@ class AnimationLibraryMainWindow(QMainWindow):
             logger.error(f"Error showing animation details: {e}")
     
     def on_preview_update_requested(self, animation_identifier: str, folder_path: str):
-        """Handle preview update request from metadata panel"""
+        """Handle preview update request from metadata panel - FIXED VERSION"""
         try:
             print(f"📨 DEBUG: Received preview update request for: '{animation_identifier}' in folder: '{folder_path}'")
             print(f"🔗 DEBUG: Connection status: {self.blender_connection.is_connected()}")
@@ -550,17 +578,13 @@ class AnimationLibraryMainWindow(QMainWindow):
                 )
                 return
             
-            # Extract animation name from the identifier (could be ID or name)
-            animation_name = animation_identifier
+            # CRITICAL FIX: Don't override the animation_identifier!
+            # Use the FULL animation identifier that was sent from metadata panel
+            animation_name = animation_identifier  # Keep the full ID as-is
             
-            # If it looks like an ID, try to get the actual animation name
-            if self.current_animation and (
-                animation_identifier == getattr(self.current_animation, 'id', '') or
-                animation_identifier == self.current_animation.name
-            ):
-                animation_name = self.current_animation.name
+            print(f"📤 DEBUG: Using animation name: '{animation_name}' (not overridden)")
             
-            # Send the update request to Blender with folder path (using new preview method)
+            # Send the update request to Blender with folder path
             success = self.blender_connection.send_update_preview(animation_name, folder_path)
             print(f"📤 DEBUG: Send result: {success}")
             
