@@ -22,7 +22,9 @@ class AnimationLibraryManager:
     
     def __init__(self, library_path: Optional[Path] = None):
         self.library_path = library_path or Path('./animation_library')
-        self.metadata_file = self.library_path / 'library_metadata.json'
+        self.metadata_file = self.library_path / 'library_metadata.json'  # Legacy for migration
+        self.metadata_folder = self.library_path / 'metadata'  # NEW: Individual metadata files
+        self.library_index_file = self.library_path / 'library_index.json'  # NEW: Lightweight index
         self.clips_folder = self.library_path / 'clips'  # Legacy JSON clips
         self.actions_folder = self.library_path / 'actions'  # Legacy .blend files (migration support)
         self.animations_folder = self.library_path / 'animations'  # NEW: File system-based folders
@@ -31,8 +33,11 @@ class AnimationLibraryManager:
         # Remove JSON-based folder structure - now using file system
         # self.folders_file = self.library_path / 'folders.json'  # REMOVED: No longer needed
         
-        # In-memory storage
-        self.animations: Dict[str, AnimationMetadata] = {}
+        # In-memory storage with caching
+        self.animations: Dict[str, AnimationMetadata] = {}  # Cache for loaded animations
+        self.animation_index: Dict[str, str] = {}  # animation_id -> folder_path mapping
+        self.cache_size_limit = 1000  # Maximum animations to keep in memory
+        self.access_order: List[str] = []  # LRU tracking for cache management
         # self.folder_structure = self._load_folder_structure()  # REMOVED: Use file system scanning
         
         self.library_metadata = {
@@ -50,12 +55,16 @@ class AnimationLibraryManager:
         
         # Ensure directories exist
         self._ensure_directories()
+        
+        # Load or migrate to individual metadata system
+        self._initialize_metadata_system()
     
     def _ensure_directories(self):
         """Ensure all required directories exist with proper structure"""
         # Create main library directories
         self.library_path.mkdir(exist_ok=True)
         self.clips_folder.mkdir(exist_ok=True)
+        self.metadata_folder.mkdir(exist_ok=True)  # NEW: Individual metadata files
         
         # Create animations/ as the main folder container
         self.animations_folder.mkdir(exist_ok=True)
@@ -74,6 +83,234 @@ class AnimationLibraryManager:
         
         logger.info("📁 Library directories initialized: %s", self.library_path)
         logger.info("📁 Default Root folder created: %s", root_animations_folder)
+    
+    def _initialize_metadata_system(self):
+        """Initialize the individual metadata system with migration support"""
+        # Check if we need to migrate from monolithic format
+        if self.metadata_file.exists() and not self.library_index_file.exists():
+            logger.info("🔄 Detected old metadata format, migrating...")
+            self._migrate_from_monolithic_metadata()
+        
+        # Load the animation index
+        self._load_animation_index()
+        
+        # Update library metadata for compatibility
+        self._update_library_metadata()
+    
+    # ==================== INDIVIDUAL METADATA FILE MANAGEMENT ====================
+    
+    def _get_animation_metadata_file(self, animation_id: str) -> Path:
+        """Get the metadata file path for a specific animation"""
+        return self.metadata_folder / f"{animation_id}.json"
+    
+    def _save_animation_metadata(self, animation: AnimationMetadata) -> bool:
+        """Save individual animation metadata to disk"""
+        try:
+            metadata_file = self._get_animation_metadata_file(animation.id)
+            temp_file = metadata_file.with_suffix('.tmp')
+            
+            # Write to temp file first for atomic operation
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(animation.to_dict(), f, indent=2)
+            
+            # Atomic replace
+            temp_file.replace(metadata_file)
+            
+            # Update index
+            self.animation_index[animation.id] = getattr(animation, 'folder_path', 'Root')
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to save animation metadata %s: %s", animation.id, e)
+            return False
+    
+    def _load_animation_metadata(self, animation_id: str) -> Optional[AnimationMetadata]:
+        """Load individual animation metadata from disk"""
+        try:
+            metadata_file = self._get_animation_metadata_file(animation_id)
+            
+            if not metadata_file.exists():
+                return None
+            
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                animation_data = json.load(f)
+            
+            animation = AnimationMetadata.from_dict(animation_data)
+            
+            # Update .blend file paths if needed
+            if animation.is_blend_file_storage():
+                animation.update_blend_file_path(self.library_path)
+            
+            return animation
+            
+        except Exception as e:
+            logger.error("Failed to load animation metadata %s: %s", animation_id, e)
+            return None
+    
+    def _remove_animation_metadata(self, animation_id: str) -> bool:
+        """Remove individual animation metadata file"""
+        try:
+            metadata_file = self._get_animation_metadata_file(animation_id)
+            
+            if metadata_file.exists():
+                metadata_file.unlink()
+            
+            # Remove from index
+            self.animation_index.pop(animation_id, None)
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to remove animation metadata %s: %s", animation_id, e)
+            return False
+    
+    def _build_animation_index(self) -> Dict[str, str]:
+        """Build animation index by scanning metadata folder"""
+        index = {}
+        
+        try:
+            if not self.metadata_folder.exists():
+                return index
+            
+            for metadata_file in self.metadata_folder.glob("*.json"):
+                animation_id = metadata_file.stem
+                
+                try:
+                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                        animation_data = json.load(f)
+                    
+                    folder_path = animation_data.get('folder_path', 'Root')
+                    index[animation_id] = folder_path
+                    
+                except Exception as e:
+                    logger.warning("Failed to read metadata file %s: %s", metadata_file, e)
+            
+            logger.info("📋 Built animation index: %d animations", len(index))
+            
+        except Exception as e:
+            logger.error("Failed to build animation index: %s", e)
+        
+        return index
+    
+    def _save_animation_index(self) -> bool:
+        """Save lightweight animation index to disk"""
+        try:
+            index_data = {
+                "version": "4.0",
+                "created": datetime.now().isoformat(),
+                "total_animations": len(self.animation_index),
+                "animation_index": self.animation_index
+            }
+            
+            temp_file = self.library_index_file.with_suffix('.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(index_data, f, indent=2)
+            
+            temp_file.replace(self.library_index_file)
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to save animation index: %s", e)
+            return False
+    
+    def _load_animation_index(self) -> bool:
+        """Load lightweight animation index from disk"""
+        try:
+            if not self.library_index_file.exists():
+                # Build index from scratch
+                self.animation_index = self._build_animation_index()
+                self._save_animation_index()
+                return True
+            
+            with open(self.library_index_file, 'r', encoding='utf-8') as f:
+                index_data = json.load(f)
+            
+            self.animation_index = index_data.get("animation_index", {})
+            
+            # Verify index is up to date
+            if len(self.animation_index) != len(list(self.metadata_folder.glob("*.json"))):
+                logger.info("📋 Animation index out of sync, rebuilding...")
+                self.animation_index = self._build_animation_index()
+                self._save_animation_index()
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to load animation index: %s", e)
+            # Fallback: build from scratch
+            self.animation_index = self._build_animation_index()
+            return False
+    
+    def _ensure_animation_loaded(self, animation_id: str) -> Optional[AnimationMetadata]:
+        """Ensure animation is loaded in cache with LRU management"""
+        # Check if already in cache
+        if animation_id in self.animations:
+            # Move to end of access order (most recently used)
+            if animation_id in self.access_order:
+                self.access_order.remove(animation_id)
+            self.access_order.append(animation_id)
+            return self.animations[animation_id]
+        
+        # Load from disk
+        animation = self._load_animation_metadata(animation_id)
+        if animation is None:
+            return None
+        
+        # Add to cache
+        self.animations[animation_id] = animation
+        self.access_order.append(animation_id)
+        
+        # Manage cache size (LRU eviction)
+        while len(self.animations) > self.cache_size_limit:
+            oldest_id = self.access_order.pop(0)
+            if oldest_id in self.animations:
+                del self.animations[oldest_id]
+        
+        return animation
+    
+    def _migrate_from_monolithic_metadata(self) -> bool:
+        """Migrate from old monolithic library_metadata.json to individual files"""
+        try:
+            if not self.metadata_file.exists():
+                return False  # No old file to migrate
+            
+            logger.info("🔄 Starting migration from monolithic metadata...")
+            
+            with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                library_data = json.load(f)
+            
+            animations_data = library_data.get("animations", {})
+            migrated_count = 0
+            
+            for anim_id, anim_data in animations_data.items():
+                try:
+                    animation = AnimationMetadata.from_dict(anim_data)
+                    
+                    # Save as individual file
+                    if self._save_animation_metadata(animation):
+                        migrated_count += 1
+                    
+                except Exception as e:
+                    logger.warning("Failed to migrate animation %s: %s", anim_id, e)
+            
+            # Save the index
+            self._save_animation_index()
+            
+            # Rename old file for backup
+            backup_file = self.metadata_file.with_suffix('.backup')
+            self.metadata_file.rename(backup_file)
+            
+            logger.info("✅ Migration complete: %d animations migrated", migrated_count)
+            logger.info("📋 Old metadata backed up to: %s", backup_file)
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to migrate metadata: %s", e)
+            return False
+    
+    # ==================== END INDIVIDUAL METADATA MANAGEMENT ====================
     
     def scan_filesystem_folders(self) -> Dict[str, Any]:
         """Scan file system to build folder structure"""
@@ -113,10 +350,10 @@ class AnimationLibraryManager:
         return folder_structure
         
     def _count_animations_in_folder(self, folder_name: str) -> int:
-        """Count animations in a specific folder"""
+        """Count animations in a specific folder using index for performance"""
         count = 0
-        for animation in self.animations.values():
-            if getattr(animation, 'folder_path', 'Root') == folder_name:
+        for animation_id, anim_folder in self.animation_index.items():
+            if anim_folder == folder_name:
                 count += 1
         return count
     
@@ -271,7 +508,7 @@ class AnimationLibraryManager:
         return count
     
     def add_animation(self, animation: AnimationMetadata, folder_path: str = "Root") -> bool:
-        """Add animation to library with file system folder organization"""
+        """Add animation to library with file system folder organization and individual metadata"""
         try:
             # Ensure target folder exists in file system
             target_folder = self.animations_folder / folder_path
@@ -299,14 +536,26 @@ class AnimationLibraryManager:
             # Set folder for animation
             animation.folder_path = folder_path
             
-            # Store in memory
+            # Store in memory cache
             self.animations[animation.id] = animation
+            self.access_order.append(animation.id)
             
-            # Update library metadata
+            # Manage cache size
+            while len(self.animations) > self.cache_size_limit:
+                oldest_id = self.access_order.pop(0)
+                if oldest_id in self.animations:
+                    del self.animations[oldest_id]
+            
+            # Save individual metadata file
+            if not self._save_animation_metadata(animation):
+                logger.error("Failed to save metadata for animation: %s", animation.id)
+                return False
+            
+            # Update and save index
+            self._save_animation_index()
+            
+            # Update library metadata (no longer saves monolithic file)
             self._update_library_metadata()
-            
-            # Save to disk
-            self.save_library()
             
             storage_info = "(.blend file)" if animation.is_blend_file_storage() else "(JSON)"
             logger.info(
@@ -322,55 +571,66 @@ class AnimationLibraryManager:
     def remove_animation(self, animation_id: str) -> bool:
         """Remove animation from library and clean up files"""
         try:
-            if animation_id not in self.animations:
-                logger.warning(f"Animation {animation_id} not found in library")
+            # Ensure animation is loaded for cleanup
+            animation = self._ensure_animation_loaded(animation_id)
+            if animation is None:
+                logger.warning("Animation %s not found in library", animation_id)
                 return False
             
-            animation = self.animations[animation_id]
-            
-            # Remove from memory
-            del self.animations[animation_id]
+            # Remove from memory cache
+            if animation_id in self.animations:
+                del self.animations[animation_id]
+            if animation_id in self.access_order:
+                self.access_order.remove(animation_id)
             
             # Remove associated files
             self._remove_animation_files(animation)
             
-            # Update library metadata
+            # Remove individual metadata file
+            self._remove_animation_metadata(animation_id)
+            
+            # Update and save index
+            self._save_animation_index()
+            
+            # Update library metadata (no longer saves monolithic file)
             self._update_library_metadata()
             
-            # Save to disk
-            self.save_library()
-            
-            logger.info(f"🗑️ Removed animation: {animation.name} ({animation_id})")
+            logger.info("🗑️ Removed animation: %s (%s)", animation.name, animation_id)
             return True
             
         except Exception as e:
-            logger.error(f"Failed to remove animation {animation_id}: {e}")
+            logger.error("Failed to remove animation %s: %s", animation_id, e)
             return False
     
     def get_animation(self, animation_id: str) -> Optional[AnimationMetadata]:
-        """Get animation by ID with .blend file validation"""
-        animation = self.animations.get(animation_id)
+        """Get animation by ID with .blend file validation and lazy loading"""
+        animation = self._ensure_animation_loaded(animation_id)
         
         if animation and animation.is_blend_file_storage():
             # Validate .blend file still exists
             animation.update_blend_file_path(self.library_path)
             if not animation.blend_reference.exists():
-                logger.warning(f"⚠️ .blend file missing for animation: {animation.name}")
+                logger.warning("⚠️ .blend file missing for animation: %s", animation.name)
                 # Could trigger auto-repair or migration here
         
         return animation
     
     def get_all_animations(self) -> List[AnimationMetadata]:
-        """Get all animations with .blend file validation"""
+        """Get all animations with .blend file validation and lazy loading"""
         valid_animations = []
         
-        for animation in self.animations.values():
+        # Use animation index to avoid loading all animations at once
+        for animation_id in self.animation_index.keys():
+            animation = self._ensure_animation_loaded(animation_id)
+            if animation is None:
+                continue
+                
             if animation.is_blend_file_storage():
                 animation.update_blend_file_path(self.library_path)
                 if animation.blend_reference.exists():
                     valid_animations.append(animation)
                 else:
-                    logger.warning(f"⚠️ Skipping animation with missing .blend file: {animation.name}")
+                    logger.warning("⚠️ Skipping animation with missing .blend file: %s", animation.name)
             else:
                 # Legacy JSON animations
                 valid_animations.append(animation)
@@ -378,82 +638,91 @@ class AnimationLibraryManager:
         return valid_animations
     
     def get_animations_in_folder(self, folder_path: str) -> List[AnimationMetadata]:
-        """Get all animations in a specific folder"""
+        """Get all animations in a specific folder using index for performance"""
         folder_animations = []
         
-        for animation in self.animations.values():
-            animation_folder = getattr(animation, 'folder_path', 'Root')
-            
+        # Use index to find animations in the specified folder
+        for animation_id, anim_folder in self.animation_index.items():
             if folder_path == "Root":
                 # Show animations in root or without folder specified
-                if animation_folder in ["Root", None, ""]:
-                    folder_animations.append(animation)
+                if anim_folder in ["Root", None, ""]:
+                    animation = self._ensure_animation_loaded(animation_id)
+                    if animation:
+                        folder_animations.append(animation)
             else:
                 # Show animations in specific folder
-                if animation_folder == folder_path:
-                    folder_animations.append(animation)
+                if anim_folder == folder_path:
+                    animation = self._ensure_animation_loaded(animation_id)
+                    if animation:
+                        folder_animations.append(animation)
         
         return folder_animations
     
     def move_animation_to_folder(self, animation_id: str, new_folder_path: str) -> bool:
-        """Move animation to a different folder in the file system"""
+        """Move animation to a different folder in the file system with individual metadata update"""
         try:
-            if animation_id in self.animations:
-                animation = self.animations[animation_id]
-                old_folder = getattr(animation, 'folder_path', 'Root')
-                print(f"📁 LIBRARY: Moving animation {animation_id}")
-                print(f"📁 LIBRARY: '{old_folder}' → '{new_folder_path}'")
-                
-                # Ensure target folder exists in file system
-                target_folder = self.animations_folder / new_folder_path
-                target_folder.mkdir(parents=True, exist_ok=True)
-                
-                # Also ensure previews folder exists (updated from thumbnails)
-                target_previews = self.previews_folder / new_folder_path  
-                target_previews.mkdir(parents=True, exist_ok=True)
-                
-                # Move .blend file if it exists
-                if animation.is_blend_file_storage() and animation.blend_reference.exists():
-                    old_path = animation.blend_reference.file_path
-                    new_path = target_folder / old_path.name
-                    
-                    try:
-                        shutil.move(str(old_path), str(new_path))
-                        # Update the animation's file path
-                        animation.blend_reference.file_path = new_path
-                        print(f"📁 LIBRARY: Moved .blend file: {old_path} → {new_path}")
-                    except Exception as e:
-                        logger.error("Failed to move .blend file %s: %s", old_path, e)
-                        return False
-                
-                # Move preview if it exists (updated from thumbnail)
-                preview_name = f"{animation_id}.mp4"  # Updated from .png to .mp4
-                old_preview = self.previews_folder / old_folder / preview_name
-                new_preview = target_previews / preview_name
-                
-                if old_preview.exists():
-                    try:
-                        shutil.move(str(old_preview), str(new_preview))
-                        print(f"📁 LIBRARY: Moved preview: {old_preview} → {new_preview}")
-                    except Exception as e:
-                        logger.warning("Failed to move preview %s: %s", old_preview, e)
-                
-                # Update the folder path in metadata
-                animation.folder_path = new_folder_path
-                
-                # Verify the change
-                updated_folder = getattr(animation, 'folder_path', 'Root')
-                print(f"📁 LIBRARY: Folder path updated to: '{updated_folder}'")
-                
-                # Save changes
-                self.save_library()
-                
-                logger.info("📁 Moved animation %s from '%s' to '%s'", animation_id, old_folder, new_folder_path)
-                return True
-            else:
+            # Ensure animation is loaded
+            animation = self._ensure_animation_loaded(animation_id)
+            if animation is None:
                 print(f"❌ LIBRARY: Animation {animation_id} not found")
                 logger.warning("Animation %s not found", animation_id)
                 return False
+            
+            old_folder = getattr(animation, 'folder_path', 'Root')
+            print(f"📁 LIBRARY: Moving animation {animation_id}")
+            print(f"📁 LIBRARY: '{old_folder}' → '{new_folder_path}'")
+            
+            # Ensure target folder exists in file system
+            target_folder = self.animations_folder / new_folder_path
+            target_folder.mkdir(parents=True, exist_ok=True)
+            
+            # Also ensure previews folder exists (updated from thumbnails)
+            target_previews = self.previews_folder / new_folder_path  
+            target_previews.mkdir(parents=True, exist_ok=True)
+            
+            # Move .blend file if it exists
+            if animation.is_blend_file_storage() and animation.blend_reference.exists():
+                old_path = animation.blend_reference.file_path
+                new_path = target_folder / old_path.name
+                
+                try:
+                    shutil.move(str(old_path), str(new_path))
+                    # Update the animation's file path
+                    animation.blend_reference.file_path = new_path
+                    print(f"📁 LIBRARY: Moved .blend file: {old_path} → {new_path}")
+                except Exception as e:
+                    logger.error("Failed to move .blend file %s: %s", old_path, e)
+                    return False
+            
+            # Move preview if it exists (updated from thumbnail)
+            preview_name = f"{animation_id}.mp4"  # Updated from .png to .mp4
+            old_preview = self.previews_folder / old_folder / preview_name
+            new_preview = target_previews / preview_name
+            
+            if old_preview.exists():
+                try:
+                    shutil.move(str(old_preview), str(new_preview))
+                    print(f"📁 LIBRARY: Moved preview: {old_preview} → {new_preview}")
+                except Exception as e:
+                    logger.warning("Failed to move preview %s: %s", old_preview, e)
+            
+            # Update the folder path in metadata
+            animation.folder_path = new_folder_path
+            
+            # Save updated individual metadata
+            if not self._save_animation_metadata(animation):
+                logger.error("Failed to save updated metadata for animation: %s", animation_id)
+                return False
+            
+            # Update and save index
+            self._save_animation_index()
+            
+            # Verify the change
+            updated_folder = getattr(animation, 'folder_path', 'Root')
+            print(f"📁 LIBRARY: Folder path updated to: '{updated_folder}'")
+            
+            logger.info("📁 Moved animation %s from '%s' to '%s'", animation_id, old_folder, new_folder_path)
+            return True
                 
         except Exception as e:
             print(f"❌ LIBRARY: Failed to move animation {animation_id}: {e}")
@@ -461,12 +730,10 @@ class AnimationLibraryManager:
             return False
     
     def get_folder_statistics(self) -> Dict[str, Dict[str, int]]:
-        """Get statistics for each folder"""
+        """Get statistics for each folder using index for performance"""
         folder_stats = {}
         
-        for animation in self.animations.values():
-            folder_path = getattr(animation, 'folder_path', 'Root')
-            
+        for animation_id, folder_path in self.animation_index.items():
             if folder_path not in folder_stats:
                 folder_stats[folder_path] = {
                     'total': 0,
@@ -476,7 +743,8 @@ class AnimationLibraryManager:
             
             folder_stats[folder_path]['total'] += 1
             
-            if animation.is_blend_file_storage():
+            # Check storage method without loading full animation
+            if self._is_blend_animation(animation_id):
                 folder_stats[folder_path]['blend_files'] += 1
             else:
                 folder_stats[folder_path]['json_files'] += 1
@@ -614,90 +882,84 @@ class AnimationLibraryManager:
         }
     
     def save_library(self) -> bool:
-        """Save library to disk with .blend file references"""
+        """Save library index and metadata (individual animation files are saved separately)"""
         try:
-            # Prepare metadata for serialization (convert sets to lists)
-            serializable_metadata = self.library_metadata.copy()
-            if 'tags' in serializable_metadata and isinstance(serializable_metadata['tags'], set):
-                serializable_metadata['tags'] = list(serializable_metadata['tags'])
-            if 'rig_types' in serializable_metadata and isinstance(serializable_metadata['rig_types'], set):
-                serializable_metadata['rig_types'] = list(serializable_metadata['rig_types'])
+            # Save the lightweight index
+            if not self._save_animation_index():
+                logger.error("Failed to save animation index")
+                return False
             
-            # Prepare data for serialization
-            library_data = {
-                "metadata": serializable_metadata,
-                "animations": {
-                    anim_id: anim.to_dict() 
-                    for anim_id, anim in self.animations.items()
-                }
-            }
+            # Update library metadata counts
+            self._update_library_metadata()
             
-            # Write to temporary file first
-            temp_file = self.metadata_file.with_suffix('.tmp')
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(library_data, f, indent=2)
+            # Note: Individual animation metadata files are saved by _save_animation_metadata()
+            # This method now only saves the index and summary metadata
             
-            # Atomic replace
-            temp_file.replace(self.metadata_file)
+            blend_count = len([aid for aid in self.animation_index.keys() 
+                             if self._is_blend_animation(aid)])
+            legacy_count = len(self.animation_index) - blend_count
             
-            # No longer saving folder structure - using file system
-            
-            blend_count = len(self.get_blend_file_animations())
-            legacy_count = len(self.get_legacy_animations())
-            logger.info("💾 Saved library: %d .blend + %d JSON animations", blend_count, legacy_count)
+            logger.info("💾 Saved library index: %d .blend + %d JSON animations", 
+                       blend_count, legacy_count)
             return True
             
         except Exception as e:
             logger.error("Failed to save library: %s", e)
             return False
     
-    def load_library(self) -> bool:
-        """Load library from disk with .blend file path resolution"""
+    def _is_blend_animation(self, animation_id: str) -> bool:
+        """Check if animation uses blend storage without loading full metadata"""
         try:
-            if not self.metadata_file.exists():
-                logger.info("No existing library found, starting with empty library")
-                
-                # IMPORTANT: Even for new library, check for existing .blend files
-                imported_count = self.detect_and_import_existing_blend_files()
-                if imported_count > 0:
-                    logger.info("📁 Auto-imported %d existing .blend files", imported_count)
-                
-                return True
+            metadata_file = self._get_animation_metadata_file(animation_id)
+            if not metadata_file.exists():
+                return False
             
-            with open(self.metadata_file, 'r', encoding='utf-8') as f:
-                library_data = json.load(f)
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             
-            # Load metadata
-            self.library_metadata = library_data.get("metadata", self.library_metadata)
+            return data.get('storage_method') == 'blend_file'
             
-            # Load animations
-            animations_data = library_data.get("animations", {})
-            self.animations = {}
+        except Exception:
+            return False
+    
+    def load_library(self) -> bool:
+        """Load library using individual metadata files with migration support"""
+        try:
+            # Check for migration from old format
+            if self.metadata_file.exists() and not self.library_index_file.exists():
+                logger.info("🔄 Migrating from monolithic metadata format...")
+                if not self._migrate_from_monolithic_metadata():
+                    logger.error("Migration failed, starting with empty library")
+                    return False
             
-            blend_count = 0
-            legacy_count = 0
+            # Load the animation index
+            if not self._load_animation_index():
+                logger.warning("Failed to load animation index, building from scratch")
+                self.animation_index = self._build_animation_index()
+                self._save_animation_index()
             
-            for anim_id, anim_data in animations_data.items():
-                try:
-                    animation = AnimationMetadata.from_dict(anim_data)
-                    
-                    # Update .blend file paths
-                    if animation.is_blend_file_storage():
-                        animation.update_blend_file_path(self.library_path)
-                        blend_count += 1
-                    else:
-                        legacy_count += 1
-                    
-                    self.animations[anim_id] = animation
-                    
-                except Exception as e:
-                    logger.warning("Failed to load animation %s: %s", anim_id, e)
+            # Count animations by type (without loading all metadata)
+            blend_count = len([aid for aid in self.animation_index.keys() 
+                             if self._is_blend_animation(aid)])
+            legacy_count = len(self.animation_index) - blend_count
             
-            # No longer loading folder structure - using file system scanning
-            
-            logger.info("📚 Loaded library: %d .blend + %d JSON animations", blend_count, legacy_count)
+            logger.info("📚 Loaded library index: %d .blend + %d JSON animations", 
+                       blend_count, legacy_count)
             
             # IMPORTANT: Detect and import any existing .blend files that aren't in metadata
+            imported_count = self.detect_and_import_existing_blend_files()
+            if imported_count > 0:
+                logger.info("📁 Auto-imported %d existing .blend files", imported_count)
+            
+            # Clear memory cache - animations will be loaded on demand
+            self.animations.clear()
+            self.access_order.clear()
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to load library: %s", e)
+            return False
             imported_count = self.detect_and_import_existing_blend_files()
             if imported_count > 0:
                 logger.info("📁 Auto-imported %d existing .blend files", imported_count)
@@ -794,27 +1056,22 @@ class AnimationLibraryManager:
         return validation_results
     
     def _update_library_metadata(self):
-        """Update library metadata with storage method counts"""
+        """Update library metadata with storage method counts using index"""
         self.library_metadata["last_modified"] = datetime.now().isoformat()
-        self.library_metadata["total_animations"] = len(self.animations)
+        self.library_metadata["total_animations"] = len(self.animation_index)
         
-        # Count by storage method
-        blend_count = len(self.get_blend_file_animations())
-        legacy_count = len(self.get_legacy_animations())
+        # Count by storage method using lightweight check
+        blend_count = len([aid for aid in self.animation_index.keys() 
+                          if self._is_blend_animation(aid)])
+        legacy_count = len(self.animation_index) - blend_count
         
         self.library_metadata["blend_file_animations"] = blend_count
         self.library_metadata["json_animations"] = legacy_count
         
-        # Update tags and rig types
-        all_tags = set()
-        all_rig_types = set()
-        
-        for animation in self.animations.values():
-            all_tags.update(animation.tags)
-            all_rig_types.add(animation.rig_type)
-        
-        self.library_metadata["tags"] = sorted(list(all_tags))
-        self.library_metadata["rig_types"] = sorted(list(all_rig_types))
+        # Note: Tags and rig types are now collected on-demand for performance
+        # Update version to indicate individual metadata system
+        self.library_metadata["version"] = "4.0"
+        self.library_metadata["storage_system"] = "individual_files"
         
         # Update folder structure
         self.library_metadata["folder_structure"] = self.get_folder_statistics()
@@ -934,9 +1191,12 @@ class AnimationLibraryManager:
                             )
                         )
                         
-                        # Add to library
+                        # Add to library using individual metadata
                         self.animations[animation_id] = animation
-                        imported_count += 1
+                        
+                        # Save individual metadata file
+                        if self._save_animation_metadata(animation):
+                            imported_count += 1
                         
                         logger.info("📁 Imported existing .blend file: %s from folder %s", 
                                   blend_filename, folder_name)
@@ -945,8 +1205,9 @@ class AnimationLibraryManager:
                         logger.warning("Failed to import .blend file %s: %s", blend_filename, e)
             
             if imported_count > 0:
+                # Update and save index
+                self._save_animation_index()
                 self._update_library_metadata()
-                self.save_library()
                 logger.info("📚 Imported %d existing .blend files", imported_count)
                 
         except Exception as e:
