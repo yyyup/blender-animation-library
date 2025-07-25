@@ -421,6 +421,7 @@ src/blender_animation_library/
 
 ### **Phase 3: Production Features** 📋
 - [ ] **Cloud library sync** for team collaboration
+- [ ] **NLA saving support** 
 - [ ] **Version control** integration with thumbnail histories
 - [ ] **Maya/Unity export** for cross-platform workflows
 - [ ] **Performance analytics** dashboard with thumbnail metrics
